@@ -1,5 +1,5 @@
 {
-  "name": "Furniture Cost Calculator",
+  "name": "Cost Calculator",
   "description": "Calculate manufacturing and material costs for furniture products, currently featuring Pedestal Units.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

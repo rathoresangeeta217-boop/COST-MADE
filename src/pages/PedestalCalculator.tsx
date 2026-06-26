@@ -720,6 +720,7 @@ export default function PedestalCalculator() {
         ["Dimensions (W x H x D)", `${width} mm x ${height} mm x ${depth} mm`],
         ["Style", typeName],
         ["Board Material", `${board.name} (Rs. ${getBoardRate(boardId, board.costPerSqFt, boardThickness, quality)}/sq.ft)`],
+        ["Total Board Area", `${totalSqFt} sq.ft`],
         ["Board Thickness", `${boardThickness} mm`],
         ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
         ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`],
@@ -824,6 +825,7 @@ export default function PedestalCalculator() {
       ["Dimensions (W x H x D)", `${width} mm x ${height} mm x ${depth} mm`],
       ["Style", typeName],
       ["Board Material", `${board.name} (Rs. ${getBoardRate(boardId, board.costPerSqFt, boardThickness, quality)}/sq.ft)`],
+      ["Total Board Area", `${totalSqFt} sq.ft`],
       ["Board Thickness", `${boardThickness} mm`],
       ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
       ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`],
@@ -991,6 +993,7 @@ export default function PedestalCalculator() {
       "Board Material",
       "Dimensions (WxHxD mm)",
       "Style / Configuration",
+      "Total Board Area (sq.ft)",
       "Cost Price (Rs)",
     ]);
 
@@ -1039,6 +1042,7 @@ export default function PedestalCalculator() {
                   board.name,
                   w + "x" + h + "x" + d,
                   t.name,
+                  res.totalSqFt,
                   res.totalCost,
                 ]);
               }
@@ -1078,6 +1082,7 @@ export default function PedestalCalculator() {
                       board.name,
                       w + "x" + h + "x" + d,
                       wsName,
+                      res.totalSqFt,
                       res.totalCost,
                     ]);
                   }
@@ -1108,6 +1113,7 @@ export default function PedestalCalculator() {
                     board.name,
                     w + "x" + h + "x" + d,
                     wsName,
+                    res.totalSqFt,
                     res.totalCost,
                   ]);
                 }

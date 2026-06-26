@@ -16,7 +16,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'workstation',
-    name: 'Table',
+    name: 'Workstation',
     description: 'Calculate manufacturing and material costs for linear office tables, including screens and wire management.',
     imageUrl: 'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&q=80&w=800',
     path: '/calculator/workstation',

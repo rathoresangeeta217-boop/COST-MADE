@@ -10,7 +10,7 @@ export default function Layout() {
             <div className="bg-indigo-600 text-white p-2 rounded-lg group-hover:bg-indigo-700 transition-colors">
               <Pickaxe className="w-5 h-5" />
             </div>
-            <span className="font-semibold text-lg tracking-tight">FurnitureCalc</span>
+            <span className="font-semibold text-lg tracking-tight">Cost Calculator</span>
           </Link>
           <nav>
             <Link
@@ -30,7 +30,7 @@ export default function Layout() {
 
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-sm text-gray-500">
-          &copy; {new Date().getFullYear()} Furniture Cost Calculator. All rights reserved.
+          &copy; {new Date().getFullYear()} Cost Calculator. All rights reserved.
         </div>
       </footer>
     </div>

@@ -222,17 +222,19 @@ export function calculateLShapeCost({
   }
   const micaSuffix = micaLabels.length > 0 ? ` with Mica (${micaLabels.join(" + ")})` : "";
 
+  const mainTopSqFt = mainTopAreaSqMm / 92903.04;
   const bDetails = [
     {
-      label: `Main Table Top (${mainWidth}x${mainDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix}`,
-      cost: Math.round((mainTopAreaSqMm / 92903.04) * topRate),
+      label: `Main Table Top (${mainWidth}x${mainDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${mainTopSqFt.toFixed(2)} sq.ft)`,
+      cost: Math.round(mainTopSqFt * topRate),
     },
   ];
 
   if (includeReturnStorage) {
+    const returnTopSqFt = returnTopAreaSqMm / 92903.04;
     bDetails.push({
-      label: `Return Storage Top (${returnWidth}x${returnDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix}`,
-      cost: Math.round((returnTopAreaSqMm / 92903.04) * topRate),
+      label: `Return Storage Top (${returnWidth}x${returnDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${returnTopSqFt.toFixed(2)} sq.ft)`,
+      cost: Math.round(returnTopSqFt * topRate),
     });
   }
 
@@ -360,11 +362,12 @@ export function calculateLShapeCost({
     }
 
     returnCarcassAreaSqMm = bottomArea + backArea + verticalsArea + shelvesArea + shuttersArea;
-    const carcassCost = (returnCarcassAreaSqMm / 92903.04) * (board.costPerSqFt + totalMicaRate);
+    const carcassAreaSqFt = returnCarcassAreaSqMm / 92903.04;
+    const carcassCost = carcassAreaSqFt * (board.costPerSqFt + totalMicaRate);
 
     bCostTotal += carcassCost;
     bDetails.push({
-      label: `Return Storage Carcass (${desc})${micaSuffix}`,
+      label: `Return Storage Carcass (${desc})${micaSuffix} (${carcassAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(carcassCost),
     });
 
@@ -486,10 +489,11 @@ export function calculateLShapeCost({
       ? Math.max(mainLegDepth, retLegDepth)
       : mainLegDepth;
     const legAreaSqMm = legCount * (effectiveDepth * height);
-    const legsCost = (legAreaSqMm / 92903.04) * (board.costPerSqFt + totalMicaRate);
+    const legAreaSqFt = legAreaSqMm / 92903.04;
+    const legsCost = legAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += legsCost;
     bDetails.push({
-      label: `Board Understructure Legs (x${legCount}) - ${effectiveDepth}D${micaSuffix}`,
+      label: `Board Understructure Legs (x${legCount}) - ${effectiveDepth}D${micaSuffix} (${legAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(legsCost),
     });
 
@@ -603,8 +607,8 @@ export function calculateLShapeCost({
       bCostTotal += modCost;
       bDetails.push({
         label: includeReturnStorage
-          ? `All Table Modesty Panels (${mainModestyWidth}x${modestyHeight}, ${returnModestyWidth}x${modestyHeight})${micaSuffix}`
-          : `Main Modesty Panel (${mainModestyWidth}x${modestyHeight})${micaSuffix}`,
+          ? `All Table Modesty Panels (${mainModestyWidth}x${modestyHeight}, ${returnModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`
+          : `Main Modesty Panel (${mainModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
         cost: Math.round(modCost),
       });
 
@@ -694,10 +698,11 @@ export function calculateLShapeCost({
       (drawerWidth * drawerDepth)
     );
 
-    const drawerBoardCost = (drawerAreaSqMm / 92903.04) * (board.costPerSqFt + totalMicaRate);
+    const drawerAreaSqFt = drawerAreaSqMm / 92903.04;
+    const drawerBoardCost = drawerAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += drawerBoardCost;
     bDetails.push({
-      label: `Drawers (${drawerCount}x) Board${micaSuffix}`,
+      label: `Drawers (${drawerCount}x) Board${micaSuffix} (${drawerAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(drawerBoardCost),
     });
 
@@ -1828,6 +1833,7 @@ export default function LShapeTableCalculator() {
           "Board Material",
           `${board.name} (Rs. ${getTopRate(board.id, board.costPerSqFt, topThickness, quality)}/sq.ft)`,
         ],
+        ["Total Board Area", `${totalSqFt} sq.ft`],
         ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
         ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`]
       );
@@ -1972,6 +1978,7 @@ export default function LShapeTableCalculator() {
         "Board Material",
         `${board.name} (Rs. ${getTopRate(board.id, board.costPerSqFt, topThickness, quality)}/sq.ft)`,
       ],
+      ["Total Board Area", `${totalSqFt} sq.ft`],
       ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
       ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`],
       ["Understructure", legType.name],
@@ -2152,6 +2159,7 @@ export default function LShapeTableCalculator() {
       "Return Desk (WxDxH mm)",
       "Top Thickness",
       "Understructure",
+      "Total Board Area (sq.ft)",
       "Cost Price (Rs)",
     ]);
 
@@ -2221,6 +2229,7 @@ export default function LShapeTableCalculator() {
                 `None`,
                 `${t}mm`,
                 exportLeg,
+                res.totalSqFt,
                 res.totalCost,
               ]);
             }
@@ -2265,6 +2274,7 @@ export default function LShapeTableCalculator() {
                   `${rw}x${rd}x${750}`,
                   `${t}mm`,
                   exportLeg,
+                  res.totalSqFt,
                   res.totalCost,
                 ]);
               }
