@@ -28,4 +28,11 @@ export const PRODUCTS: Product[] = [
     imageUrl: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&q=80&w=800',
     path: '/calculator/l-shape-table',
   },
+  {
+    id: 'custom_storage',
+    name: 'Custom Drawers & Storages',
+    description: 'Calculate manufacturing and material costs for fully customizable modular storages, credenzas, and drawer units.',
+    imageUrl: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&q=80&w=800',
+    path: '/calculator/custom-storage',
+  },
 ];

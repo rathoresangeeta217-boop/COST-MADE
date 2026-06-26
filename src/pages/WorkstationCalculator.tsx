@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Calculator,
   LayoutGrid,
@@ -8,32 +8,115 @@ import {
   Download,
   FileSpreadsheet,
   X,
+  Copy,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
-const BOARDS = [
-  { id: "plpb", name: "PLPB", costPerSqFt: 34 },
-  { id: "mdf", name: "MDF", costPerSqFt: 60 },
-  { id: "hdhmr", name: "HDHMR", costPerSqFt: 74 },
-  { id: "ply_laminate", name: "PLY LAMINATE", costPerSqFt: 130 },
+export const getBoards = (quality: string) => [
+  { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
+  { id: "mdf", name: "MDF", costPerSqFt: quality === "affordable" ? 38 : 61 },
+  {
+    id: "hdhmr",
+    name: "HDHMR",
+    costPerSqFt: quality === "affordable" ? 99 : 74,
+  },
+  {
+    id: "ply_laminate",
+    name: "PLY LAMINATE",
+    costPerSqFt: quality === "affordable" ? 55 : 130,
+  },
   { id: "hdhmr_laminate", name: "HDHMR LAMINATE", costPerSqFt: 130 },
+  {
+    id: "ply_century_one_mm_laminate",
+    name: "PLY CENTURY ONE MM LAMINATE",
+    costPerSqFt: 230,
+  },
 ];
 
-const getTopRate = (boardId: string, baseRate: number, topThickness: number) => {
-  if (boardId === "plpb") {
-    if (topThickness === 25) return 63;
-    if (topThickness === 36) return 98;
+export const getAvailableThicknesses = (
+  boardId: string,
+  quality: string,
+): number[] => {
+  if (quality === "affordable") {
+    switch (boardId) {
+      case "plpb":
+        return [11, 17, 18, 25];
+      case "mdf":
+        return [17, 18, 25, 35];
+      case "hdhmr":
+        return [16.75, 18, 25];
+      case "ply_laminate":
+      case "ply_century_one_mm_laminate":
+        return [6, 9, 12, 15, 16, 18];
+      default:
+        return [18];
+    }
+  } else {
+    switch (boardId) {
+      case "plpb":
+        return [18, 25, 36];
+      case "hdhmr":
+        return [18, 25];
+      case "mdf":
+        return [18, 25, 36];
+      case "ply_century_one_mm_laminate":
+        return [18, 25];
+      default:
+        return [18];
+    }
   }
-  if (boardId === "hdhmr") {
-    if (topThickness === 25) return 108;
-  }
-  if (boardId === "mdf") {
-    if (topThickness === 17) return 55;
-    if (topThickness === 18) return 60;
-    if (topThickness === 25) return 80;
-    if (topThickness === 35) return 112;
+};
+
+export const getTopRate = (
+  boardId: string,
+  baseRate: number,
+  topThickness: number,
+  quality: string,
+) => {
+  if (quality === "affordable") {
+    if (boardId === "plpb") {
+      if (topThickness === 11) return 27;
+      if (topThickness === 17) return 29;
+      if (topThickness === 18) return 34;
+      if (topThickness === 25) return 42;
+    }
+    if (boardId === "hdhmr") {
+      // 16.75 will be matched with close values if exact match fails, but we'll use exact match
+      if (Math.abs(topThickness - 16.75) < 0.1) return 88;
+      if (topThickness === 18) return 99;
+      if (topThickness === 25) return 135;
+    }
+    if (boardId === "ply_laminate") {
+      if (topThickness === 6) return 22;
+      if (topThickness === 9) return 35;
+      if (topThickness === 12) return 38;
+      if (topThickness === 15) return 46;
+      if (topThickness === 16) return 46;
+      if (topThickness === 18) return 55;
+    }
+    if (boardId === "mdf") {
+      if (topThickness === 17) return 55;
+      if (topThickness === 18) return 60;
+      if (topThickness === 25) return 80;
+      if (topThickness === 35) return 112;
+    }
+  } else {
+    // Standard quality logic
+    if (boardId === "plpb") {
+      if (topThickness === 18) return 49;
+      if (topThickness === 25) return 63;
+      if (topThickness === 36) return 98;
+    }
+    if (boardId === "hdhmr") {
+      if (topThickness === 25) return 108;
+    }
+    if (boardId === "mdf") {
+      if (topThickness === 18) return 61;
+      if (topThickness === 25) return 83;
+      if (topThickness === 36) return 122;
+    }
   }
   return baseRate * (topThickness / 18);
 };
@@ -66,6 +149,17 @@ const LPATTI_QTY = 8;
 const BUFFER_COST = 5;
 const BUFFER_QTY = 4;
 
+const HARDWARE_CHANNEL_COST = 235; // per pair
+const HARDWARE_HANDLE_COST = 50; // per piece
+const HARDWARE_LOCK_COST = 90; // per piece
+
+const CPU_TROLLEY_COST = 350;
+const CPU_MOUNT_COST = 550;
+
+export const MARBLE_TYPES = [
+  { id: "onyx", name: "Onyx (14mm)", costPerSqFt: 1500, thickness: 14 },
+];
+
 export function calculateWorkstationCost({
   width,
   depth,
@@ -80,45 +174,83 @@ export function calculateWorkstationCost({
   screenHeight,
   includeModesty,
   modestyType = "standard",
+  metalModestyType = "plain",
   wireManagement,
-  includePedestal
+  includePedestal,
+  includeDrawer = false,
+  drawerCount = 1,
+  singleDrawerType = "corner",
+  cpuStandType = "none",
+  quality = "standard",
+  innerMica = "none",
+  outerMica = "none",
+  topMaterialCategory = "wood",
+  marbleTypeId = "onyx",
 }: any) {
-  const board = BOARDS.find((b) => b.id === boardId)!;
+  const boards = getBoards(quality);
+  const board = boards.find((b) => b.id === boardId)!;
   const legType = LEGS.find((l) => l.id === legId)!;
   const screenType = SCREENS.find((s) => s.id === screenId)!;
 
+  const innerRate = innerMica === "0.8" ? 35 : innerMica === "1.0" ? 56 : 0;
+  const outerRate = outerMica === "0.8" ? 35 : outerMica === "1.0" ? 56 : 0;
+  const totalMicaRate = innerRate + outerRate;
+
   // 1. Table Top Area
   const topAreaSqMm = width * depth;
-    let topRate = getTopRate(board.id, board.costPerSqFt, topThickness);
-    const topCost = (topAreaSqMm / 92903.04) * topRate;
+  let topRate = 0;
+  let displayThickness = topThickness;
+  let displayMaterialName = "";
+
+  if (topMaterialCategory === "marble") {
+    const marble = MARBLE_TYPES.find((m) => m.id === marbleTypeId) || MARBLE_TYPES[0];
+    topRate = marble.costPerSqFt;
+    displayThickness = marble.thickness;
+    displayMaterialName = marble.name;
+  } else {
+    topRate = getTopRate(board.id, board.costPerSqFt, topThickness, quality) + totalMicaRate;
+    displayThickness = topThickness;
+    displayMaterialName = board.name;
+  }
+
+  const topCost = (topAreaSqMm / 92903.04) * topRate;
+
+  const micaLabels = [];
+  if (topMaterialCategory !== "marble") {
+    if (innerMica !== "none") micaLabels.push(`Inner ${innerMica}mm`);
+    if (outerMica !== "none") micaLabels.push(`Outer ${outerMica}mm`);
+  }
+  const micaSuffix = micaLabels.length > 0 ? ` with Mica (${micaLabels.join(" + ")})` : "";
 
   const bDetails = [
     {
-      label: `Table Top (${width}x${depth}x${topThickness}mm)`,
+      label: `Table Top (${width}x${depth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix}`,
       cost: Math.round(topCost),
     },
   ];
 
   let bCostTotal = topCost;
 
-  // Edge Banding for Table Top
-  let edgeBandingRate = 13;
-  let edgeBandingThickness = "0.8mm";
-  if (topThickness === 25) {
-    edgeBandingRate = 28;
-    edgeBandingThickness = "2mm";
-  } else if (topThickness === 36) {
-    edgeBandingRate = 48;
-    edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
-  }
+  // Edge Banding for Table Top (only for Wood tops)
+  if (topMaterialCategory !== "marble") {
+    let edgeBandingRate = 13;
+    let edgeBandingThickness = "0.8mm";
+    if (topThickness === 25) {
+      edgeBandingRate = 28;
+      edgeBandingThickness = "2mm";
+    } else if (topThickness === 36) {
+      edgeBandingRate = 48;
+      edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
+    }
 
-  const topPerimeterM = (width * 2 + depth * 2) / 1000;
-  const edgeBandingCost = topPerimeterM * edgeBandingRate;
-  bCostTotal += edgeBandingCost;
-  bDetails.push({
-    label: `Table Top Edge Banding (${edgeBandingThickness}, ${Math.round(topPerimeterM * 10) / 10}m)`,
-    cost: Math.round(edgeBandingCost),
-  });
+    const topPerimeterM = (width * 2 + depth * 2) / 1000;
+    const edgeBandingCost = topPerimeterM * edgeBandingRate;
+    bCostTotal += edgeBandingCost;
+    bDetails.push({
+      label: `Table Top Edge Banding (${edgeBandingThickness}, ${Math.round(topPerimeterM * 10) / 10}m)`,
+      cost: Math.round(edgeBandingCost),
+    });
+  }
 
   // 2. Legs / Understructure
   let hCost = 0;
@@ -139,12 +271,12 @@ export function calculateWorkstationCost({
       else if (depth === 900) legDepth = 600;
       else legDepth = Math.max(400, depth - 200);
     }
-    
+
     const sideLegAreaSqMm = 2 * (legDepth * height);
-    const legsCost = (sideLegAreaSqMm / 92903.04) * board.costPerSqFt;
+    const legsCost = (sideLegAreaSqMm / 92903.04) * (board.costPerSqFt + totalMicaRate);
     bCostTotal += legsCost;
     bDetails.push({
-      label: `Board Side Legs (x2) - ${legDepth}D`,
+      label: `Board Side Legs (x2) - ${legDepth}D${micaSuffix}`,
       cost: Math.round(legsCost),
     });
 
@@ -172,22 +304,22 @@ export function calculateWorkstationCost({
     const horizontalDepthMm = Math.max(0, depth - 180);
     const horizontalLengthMm = 2 * horizontalWidthMm + 2 * horizontalDepthMm;
     const horizontalFeet = horizontalLengthMm / 304.8;
-    
+
     const cost40x20 = horizontalFeet * 19.6; // 7kg * 56 Rs/kg / 20ft pipe = 19.6 Rs/rft
-    
+
     const totalFeet = verticalFeet + horizontalFeet;
     const powderCoatingCost = totalFeet * 30;
-    
+
     const numLegs = 4;
     const bufferCost = numLegs * 7;
     const nutCost = numLegs * 5;
     const butterflyCost = numLegs * 2 * 12.5;
     const accessoriesCost = bufferCost + nutCost + butterflyCost;
-    
+
     hCost += costVerticals + cost40x20 + powderCoatingCost + accessoriesCost;
-    
+
     hDetails.push({
-      label: `Metal Legs ${metalLegPipeSize} (${metalLegStyle === 'u_shape' ? 'U-Shape' : 'Straight'})`,
+      label: `Metal Legs ${metalLegPipeSize} (${metalLegStyle === "u_shape" ? "U-Shape" : "Straight"})`,
       qty: Number(verticalFeet.toFixed(2)),
       unitPrice: verticalRate,
       unitLabel: "rft",
@@ -236,24 +368,42 @@ export function calculateWorkstationCost({
       if (modestyType === "short") modestyHeight = 600;
       else if (modestyType === "shorter") modestyHeight = 300;
       else modestyHeight = 715; // standard
+    } else {
+      modestyHeight = 450; // Typically metal frame modesty panels are shorter, let's assume 450mm
     }
     const modestyWidth = width - 18;
     const modestyAreaSqMm = modestyWidth * modestyHeight;
-    modCost = (modestyAreaSqMm / 92903.04) * board.costPerSqFt;
-    bCostTotal += modCost;
-    bDetails.push({
-      label: `Modesty Panel (${modestyWidth}x${modestyHeight})`,
-      cost: Math.round(modCost),
-    });
+    const modestyAreaSqFt = modestyAreaSqMm / 92903.04;
 
-    // Modesty Edge Banding (1 bottom edge)
-    const modestyEbLengthM = modestyWidth / 1000;
-    const modestyEbCost = modestyEbLengthM * 13; // Uses standard 13/m rate
-    bCostTotal += modestyEbCost;
-    bDetails.push({
-      label: `Modesty Edge Banding (0.8mm, ${modestyEbLengthM.toFixed(3)}m)`,
-      cost: Math.round(modestyEbCost),
-    });
+    if (legId === "board") {
+      modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate);
+      bCostTotal += modCost;
+      bDetails.push({
+        label: `Modesty Panel (${modestyWidth}x${modestyHeight})${micaSuffix}`,
+        cost: Math.round(modCost),
+      });
+
+      // Modesty Edge Banding (1 bottom edge)
+      const modestyEbLengthM = modestyWidth / 1000;
+      const modestyEbCost = modestyEbLengthM * 13; // Uses standard 13/m rate
+      bCostTotal += modestyEbCost;
+      bDetails.push({
+        label: `Modesty Edge Banding (0.8mm, ${modestyEbLengthM.toFixed(3)}m)`,
+        cost: Math.round(modestyEbCost),
+      });
+    } else {
+      // Metal Leg Modesty
+      const metalModestyRateSqFt = metalModestyType === "cnc" ? 163 : 100;
+      modCost = modestyAreaSqFt * metalModestyRateSqFt;
+      hCost += modCost;
+      hDetails.push({
+        label: `Metal Modesty Panel (${metalModestyType === "cnc" ? "CNC Design" : "Plain"})`,
+        qty: Number(modestyAreaSqFt.toFixed(2)),
+        unitPrice: metalModestyRateSqFt,
+        unitLabel: "sqft",
+        cost: Math.round(modCost),
+      });
+    }
   }
 
   // 4. Partition Screen
@@ -261,9 +411,9 @@ export function calculateWorkstationCost({
   if (screenId !== "none") {
     const sAreaSqFt = (width * screenHeight) / 92903.04;
     if (screenId === "board") {
-      sCost = sAreaSqFt * board.costPerSqFt;
+      sCost = sAreaSqFt * (board.costPerSqFt + totalMicaRate);
       bCostTotal += sCost;
-      bDetails.push({ label: "Board Partition", cost: Math.round(sCost) });
+      bDetails.push({ label: `Board Partition${micaSuffix}`, cost: Math.round(sCost) });
     } else {
       sCost = sAreaSqFt * screenType.costPerSqFt;
     }
@@ -318,6 +468,89 @@ export function calculateWorkstationCost({
     });
   }
 
+  // 7. Undermount Drawers (Optional)
+  if (includeDrawer) {
+    let drawerWidth = 0;
+    let drawerHeight = 150;
+    let drawerDepth = Math.max(300, depth - 200);
+
+    if (singleDrawerType === "corner") {
+      drawerWidth = 360;
+      drawerHeight = 160;
+      drawerDepth = 320;
+    } else {
+      drawerHeight = 160;
+      drawerDepth = depth;
+      if (drawerCount === 1) {
+        drawerWidth = width - 36;
+      } else {
+        drawerWidth = (width - 36) / 2;
+      }
+    }
+
+    // Front/Back + Sides + Bottom approx
+    const drawerAreaSqMm = drawerCount * (
+      (drawerWidth * drawerHeight * 2) +
+      (drawerDepth * drawerHeight * 2) +
+      (drawerWidth * drawerDepth)
+    );
+
+    const drawerBoardCost = (drawerAreaSqMm / 92903.04) * (board.costPerSqFt + totalMicaRate);
+    bCostTotal += drawerBoardCost;
+    bDetails.push({
+      label: `Drawers (${drawerCount}x) Board${micaSuffix}`,
+      cost: Math.round(drawerBoardCost),
+    });
+
+    const channelCost = drawerCount * HARDWARE_CHANNEL_COST;
+    const handleCost = drawerCount * HARDWARE_HANDLE_COST;
+    const lockCost = drawerCount * HARDWARE_LOCK_COST;
+
+    hCost += channelCost + handleCost + lockCost;
+    hDetails.push({
+      label: "Drawer Channels",
+      qty: drawerCount,
+      unitPrice: HARDWARE_CHANNEL_COST,
+      unitLabel: "pair",
+      cost: channelCost,
+    });
+    hDetails.push({
+      label: "Drawer Handles",
+      qty: drawerCount,
+      unitPrice: HARDWARE_HANDLE_COST,
+      unitLabel: "pcs",
+      cost: handleCost,
+    });
+    hDetails.push({
+      label: "Drawer Locks",
+      qty: drawerCount,
+      unitPrice: HARDWARE_LOCK_COST,
+      unitLabel: "pcs",
+      cost: lockCost,
+    });
+  }
+
+  // 8. CPU Stand (Optional)
+  if (cpuStandType === "trolley") {
+    hCost += CPU_TROLLEY_COST;
+    hDetails.push({
+      label: "CPU Trolley",
+      qty: 1,
+      unitPrice: CPU_TROLLEY_COST,
+      unitLabel: "unit",
+      cost: CPU_TROLLEY_COST,
+    });
+  } else if (cpuStandType === "mount") {
+    hCost += CPU_MOUNT_COST;
+    hDetails.push({
+      label: "CPU Mount Bracket",
+      qty: 1,
+      unitPrice: CPU_MOUNT_COST,
+      unitLabel: "unit",
+      cost: CPU_MOUNT_COST,
+    });
+  }
+
   // Add Fixed Hardware (Patti & Buffer)
   if (legId !== "metal_leg") {
     const pattiTotal = LPATTI_QTY * LPATTI_COST;
@@ -341,10 +574,63 @@ export function calculateWorkstationCost({
     });
   }
 
-  const tSqFt = (bCostTotal / board.costPerSqFt).toFixed(2);
+  let boardAreaSqMm =
+    (topMaterialCategory === "marble" ? 0 : topAreaSqMm) +
+    (legId === "board"
+      ? 2 *
+        (boardLegType === "shorter"
+          ? depth === 600
+            ? 400
+            : depth === 750
+              ? 450
+              : depth === 900
+                ? 600
+                : Math.max(400, depth - 200)
+          : depth) *
+        height
+      : 0) +
+    (includeModesty
+      ? (width - 18) *
+        (legId === "board"
+          ? modestyType === "short"
+            ? 600
+            : modestyType === "shorter"
+              ? 300
+              : 715
+          : 750)
+      : 0) +
+    (screenId === "board" ? width * screenHeight : 0);
+
+  if (includeDrawer) {
+    let drawerWidth = 0;
+    let drawerHeight = 150;
+    let drawerDepth = Math.max(300, depth - 200);
+
+    if (singleDrawerType === "corner") {
+      drawerWidth = 360;
+      drawerHeight = 160;
+      drawerDepth = 320;
+    } else {
+      drawerHeight = 160;
+      drawerDepth = depth;
+      if (drawerCount === 1) {
+        drawerWidth = width - 36;
+      } else {
+        drawerWidth = (width - 36) / 2;
+      }
+    }
+    const drawerAreaSqMm = drawerCount * (
+      (drawerWidth * drawerHeight * 2) +
+      (drawerDepth * drawerHeight * 2) +
+      (drawerWidth * drawerDepth)
+    );
+    boardAreaSqMm += drawerAreaSqMm;
+  }
+
+  const tSqFt = (boardAreaSqMm / 92903.04).toFixed(2);
   const waste = Math.round(bCostTotal * 0.15);
 
-  const lCost = LABOR_COST;
+  const lCost = Math.round((bCostTotal + waste + hCost + (screenId !== "board" ? sCost : 0) + modCost) * 0.20);
   const pCost = PACKING_COST;
 
   // Total raw + labor
@@ -353,6 +639,7 @@ export function calculateWorkstationCost({
     waste +
     hCost +
     (screenId !== "board" ? sCost : 0) +
+    modCost +
     lCost +
     pCost;
 
@@ -385,8 +672,20 @@ export default function WorkstationCalculator() {
   const [depth, setDepth] = useState<number>(600); // mm
   const [height, setHeight] = useState<number>(750); // mm
   const [topThickness, setTopThickness] = useState<number>(18); // mm
+  const [quality, setQuality] = useState<string>("standard");
+
+  const [topMaterialCategory, setTopMaterialCategory] = useState<string>("wood"); // 'wood', 'marble'
+  const [marbleTypeId, setMarbleTypeId] = useState<string>("onyx");
 
   const [boardId, setBoardId] = useState<string>("plpb");
+
+  useEffect(() => {
+    const available = getAvailableThicknesses(boardId, quality);
+    if (!available.includes(topThickness)) {
+      setTopThickness(available[0]);
+    }
+  }, [boardId, quality, topThickness]);
+
   const [legId, setLegId] = useState<string>("board");
   const [boardLegType, setBoardLegType] = useState<string>("full"); // 'full', 'shorter'
   const [metalLegStyle, setMetalLegStyle] = useState<string>("straight"); // 'straight', 'u_shape'
@@ -396,18 +695,37 @@ export default function WorkstationCalculator() {
   const [screenHeight, setScreenHeight] = useState<number>(300); // above desk height mm
   const [includeModesty, setIncludeModesty] = useState<boolean>(true);
   const [modestyType, setModestyType] = useState<string>("standard"); // 'standard', 'short', 'shorter'
+  const [metalModestyType, setMetalModestyType] = useState<string>("plain"); // 'plain', 'cnc'
   const [wireManagement, setWireManagement] = useState<string>("raceway"); // 'grommet', 'raceway', 'none'
   const [includePedestal, setIncludePedestal] = useState<boolean>(false);
+  const [includeDrawer, setIncludeDrawer] = useState<boolean>(false);
+  const [drawerCount, setDrawerCount] = useState<number>(1);
+  const [singleDrawerType, setSingleDrawerType] = useState<string>("corner");
+  const [cpuStandType, setCpuStandType] = useState<string>("none"); // 'none', 'trolley', 'mount'
+
+  const [innerMica, setInnerMica] = useState<string>("none");
+  const [outerMica, setOuterMica] = useState<string>("none");
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportIncludeModesty, setExportIncludeModesty] = useState(true);
-  const [exportModestyType, setExportModestyType] = useState<string>("standard");
+  const [exportModestyType, setExportModestyType] =
+    useState<string>("standard");
   const [exportIncludePedestal, setExportIncludePedestal] = useState(false);
-  const [exportWireManagement, setExportWireManagement] = useState<string>("none");
+  const [exportWireManagement, setExportWireManagement] =
+    useState<string>("none");
   const [exportThickness, setExportThickness] = useState<string>("all");
   const [exportMaterial, setExportMaterial] = useState<string>("all");
+  const [exportQuality, setExportQuality] = useState<string>("standard");
+  const [exportInnerMica, setExportInnerMica] = useState<string>("none");
+  const [exportOuterMica, setExportOuterMica] = useState<string>("none");
   const [exportLegId, setExportLegId] = useState<string>("board");
   const [exportBoardLegType, setExportBoardLegType] = useState<string>("full");
+
+  const currentBoard = getBoards(quality).find((b) => b.id === boardId);
+  const currentMarble = MARBLE_TYPES.find((m) => m.id === marbleTypeId);
+  const displayMaterialName = topMaterialCategory === "marble" ? currentMarble?.name : currentBoard?.name;
+  const displayThickness = topMaterialCategory === "marble" ? currentMarble?.thickness : topThickness;
+  const topRate = topMaterialCategory === "marble" ? currentMarble?.costPerSqFt : getTopRate(boardId, currentBoard?.costPerSqFt ?? 0, topThickness, quality);
 
   const {
     boardCostTotal,
@@ -438,8 +756,17 @@ export default function WorkstationCalculator() {
       screenHeight,
       includeModesty,
       modestyType,
+      metalModestyType,
       wireManagement,
-      includePedestal
+      includeDrawer,
+      drawerCount,
+      singleDrawerType,
+      includePedestal,
+      quality,
+      innerMica,
+      outerMica,
+      topMaterialCategory,
+      marbleTypeId,
     });
   }, [
     width,
@@ -456,12 +783,65 @@ export default function WorkstationCalculator() {
     includeModesty,
     modestyType,
     wireManagement,
+    includeDrawer,
+    drawerCount,
+    singleDrawerType,
+    cpuStandType,
     includePedestal,
+    quality,
+    innerMica,
+    outerMica,
+    topMaterialCategory,
+    marbleTypeId,
   ]);
+
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
+  const copyImagePrompt = () => {
+    let topName = "";
+    if (topMaterialCategory === "marble") {
+      topName = MARBLE_TYPES.find((m) => m.id === marbleTypeId)?.name || "Marble";
+    } else {
+      const topBoard = getBoards(quality).find((b) => b.id === boardId)?.name || "Board";
+      topName = topBoard === "PLPB" || topBoard === "MDF" || topBoard === "HDHMR" ? topBoard + " wood" : topBoard;
+    }
+
+    let legStyle = "panel legs";
+    if (legId === "metal_leg") {
+      legStyle = `metal loop legs`;
+    }
+
+    let drawerDesc = "";
+    if (includeDrawer) {
+      if (singleDrawerType === "corner") {
+        drawerDesc = ` It features ${drawerCount} undermount corner drawer${drawerCount > 1 ? "s" : ""} (360mm W x 320mm D x 160mm H).`;
+      } else {
+        drawerDesc = ` It features an undermount ${drawerCount} drawer storage unit.`;
+      }
+    }
+    const pedestalDesc = includePedestal ? ` It has a 3-drawer side pedestal attached.` : "";
+    const cpuDesc = cpuStandType !== "none" ? ` The desk includes a CPU ${cpuStandType === "trolley" ? "trolley on wheels" : "mount bracket"}.` : "";
+    
+    let modestyString = "a front modesty panel";
+    if (legId === "board") {
+      if (modestyType === "short") modestyString = "a short (600mm) front modesty panel";
+      if (modestyType === "shorter") modestyString = "a very short (300mm) front modesty panel";
+    }
+    const modestyDesc = includeModesty ? ` It includes ${modestyString}.` : " It has an open back design with no modesty panel.";
+    
+    const screenDesc = screenId !== "none" ? ` It includes a ${screenHeight}mm high ${SCREENS.find(s=>s.id === screenId)?.name.toLowerCase() ?? "partition"} screen on top.` : "";
+    
+    const prompt = `A highly realistic, professional product photography studio shot of a modern office workstation desk. The table dimensions are ${width}mm wide, ${depth}mm deep, and ${height}mm high. The table top is made of ${topName}. The desk base uses ${legStyle}.${modestyDesc}${screenDesc}${drawerDesc}${pedestalDesc}${cpuDesc} Clean, ultra-minimalist solid white background. Studio lighting, highly detailed, 8k resolution, photorealistic furniture photography.`;
+    
+    navigator.clipboard.writeText(prompt);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2000);
+  };
 
   const downloadPDF = () => {
     const doc = new jsPDF();
-    const board = BOARDS.find((b) => b.id === boardId)!;
+    const boards = getBoards(quality);
+    const board = boards.find((b) => b.id === boardId)!;
     const legType = LEGS.find((l) => l.id === legId)!;
     const screenType = SCREENS.find((s) => s.id === screenId)!;
 
@@ -471,23 +851,61 @@ export default function WorkstationCalculator() {
     doc.setFontSize(12);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 32);
 
+    const specBody = [
+      ["Dimensions (W x H x D)", `${width} mm x ${height} mm x ${depth} mm`],
+      ["Table Top Category", topMaterialCategory === "marble" ? "Marble Top" : "Wood / Board Top"],
+    ];
+
+    if (topMaterialCategory === "marble") {
+      specBody.push(
+        ["Table Top Thickness", "14 mm"],
+        ["Table Top Material", `Onyx (Rs. 1,500/sq.ft)`]
+      );
+    } else {
+      specBody.push(
+        ["Table Top Thickness", `${topThickness} mm`],
+        [
+          "Board Material",
+          `${board.name} (Rs. ${getTopRate(board.id, board.costPerSqFt, topThickness, quality)}/sq.ft)`,
+        ],
+        ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
+        ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`]
+      );
+    }
+
+    specBody.push(
+      ["Understructure Wood", board.name],
+      ["Understructure", legType.name],
+      ["Modesty Panel", includeModesty ? "Included" : "None"],
+      [
+        "Screen Partition",
+        screenId !== "none"
+          ? `${screenType.name} (${screenHeight}mm H)`
+          : "None",
+      ],
+      ["Wire Management", wireManagement.toUpperCase()]
+    );
+
+    if (includePedestal) {
+      specBody.push(["Attached Pedestal", "Yes (3-Drawers)"]);
+    }
+    if (includeDrawer) {
+      specBody.push([
+        "Undermount Drawer",
+        `${drawerCount}x ${singleDrawerType === "corner" ? "Corner (Compact)" : (drawerCount === 1 ? "Full Width" : "Equal Widths")}`
+      ]);
+    }
+    if (cpuStandType !== "none") {
+      specBody.push([
+        "CPU Stand",
+        cpuStandType === "trolley" ? "CPU Trolley" : "CPU Mount Bracket"
+      ]);
+    }
+
     autoTable(doc, {
       startY: 40,
       head: [["Specification", "Details"]],
-      body: [
-        ["Dimensions (W x H x D)", `${width} mm x ${height} mm x ${depth} mm`],
-        ["Table Top Thickness", `${topThickness} mm`],
-        ["Board Material", `${board.name} (Rs. ${getTopRate(board.id, board.costPerSqFt, topThickness)}/sq.ft)`],
-        ["Understructure", legType.name],
-        ["Modesty Panel", includeModesty ? "Included" : "None"],
-        [
-          "Screen Partition",
-          screenId !== "none"
-            ? `${screenType.name} (${screenHeight}mm H)`
-            : "None",
-        ],
-        ["Wire Management", wireManagement.toUpperCase()],
-      ],
+      body: specBody,
       theme: "grid",
       headStyles: { fillColor: [79, 70, 229] },
     });
@@ -569,6 +987,12 @@ export default function WorkstationCalculator() {
     const wb = XLSX.utils.book_new();
 
     const masterData: any[][] = [];
+    masterData.push(["Table Master Price List Report"]);
+    masterData.push(["Generated On", new Date().toLocaleDateString()]);
+    masterData.push(["Board Option", exportQuality.toUpperCase()]);
+    masterData.push(["Inner Mica / Laminate", exportInnerMica === "none" ? "None" : `${exportInnerMica} mm`]);
+    masterData.push(["Outer Mica / Laminate", exportOuterMica === "none" ? "None" : `${exportOuterMica} mm`]);
+    masterData.push([]); // blank row
     masterData.push([
       "Board Material",
       "Dimensions (WxDxH mm)",
@@ -579,16 +1003,34 @@ export default function WorkstationCalculator() {
 
     const widths = [900, 1050, 1200, 1350, 1500];
     const depths = [400, 600, 750, 900, 1100];
-    const thicknesses = exportThickness === "all" ? [17, 18, 25, 35, 36] : [Number(exportThickness)];
-    const boardsToExport = exportMaterial === "all" ? BOARDS : BOARDS.filter(b => b.id === exportMaterial);
-    const exportLegName = LEGS.find(l => l.id === exportLegId)?.name || 'Board Leg';
-    const exportLeg = exportLegId === "board" ? `${exportLegName} (${exportBoardLegType === "shorter" ? "Shorter" : "Full Depth"})` : exportLegName;
+    const boards = getBoards(exportQuality);
+    const boardsToExport =
+      exportMaterial === "all"
+        ? boards
+        : boards.filter((b) => b.id === exportMaterial);
+    const exportLegName =
+      LEGS.find((l) => l.id === exportLegId)?.name || "Board Leg";
+    const exportLeg =
+      exportLegId === "board"
+        ? `${exportLegName} (${exportBoardLegType === "shorter" ? "Shorter" : "Full Depth"})`
+        : exportLegName;
 
     // Build the master data
     for (const board of boardsToExport) {
+      const allowedThicknesses = getAvailableThicknesses(
+        board.id,
+        exportQuality,
+      );
+      const boardThicknesses =
+        exportThickness === "all"
+          ? allowedThicknesses
+          : allowedThicknesses.includes(Number(exportThickness))
+            ? [Number(exportThickness)]
+            : [];
+
       for (const w of widths) {
         for (const d of depths) {
-          for (const t of thicknesses) {
+          for (const t of boardThicknesses) {
             const res = calculateWorkstationCost({
               width: w,
               depth: d,
@@ -603,8 +1045,16 @@ export default function WorkstationCalculator() {
               screenHeight: 300,
               includeModesty: exportIncludeModesty,
               modestyType: exportModestyType,
+              metalModestyType: "plain",
               wireManagement: exportWireManagement,
-              includePedestal: exportIncludePedestal
+              includeDrawer,
+              drawerCount,
+              singleDrawerType,
+              cpuStandType,
+              includePedestal: exportIncludePedestal,
+              quality: exportQuality,
+              innerMica: exportInnerMica,
+              outerMica: exportOuterMica,
             });
 
             masterData.push([
@@ -620,7 +1070,13 @@ export default function WorkstationCalculator() {
     }
 
     const wsMaster = XLSX.utils.aoa_to_sheet(masterData);
-    const colWidths = [{ wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 15 }];
+    const colWidths = [
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 15 },
+    ];
     wsMaster["!cols"] = colWidths;
 
     XLSX.utils.book_append_sheet(wb, wsMaster, "Master Price List");
@@ -735,22 +1191,29 @@ export default function WorkstationCalculator() {
                   >
                     <option value={750}>750 mm</option>
                   </select>
-                )}</div>
+                )}
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Top Thickness
                 </label>
-                <select
-                  value={topThickness}
-                  onChange={(e) => setTopThickness(Number(e.target.value))}
-                  className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
-                >
-                  <option value={17}>17 mm</option>
-                  <option value={18}>18 mm</option>
-                  <option value={25}>25 mm</option>
-                  <option value={35}>35 mm</option>
-                  <option value={36}>36 mm</option>
-                </select>
+                {topMaterialCategory === "marble" ? (
+                  <div className="block w-full px-4 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-500 font-semibold select-none">
+                    14 mm (Onyx)
+                  </div>
+                ) : (
+                  <select
+                    value={topThickness}
+                    onChange={(e) => setTopThickness(Number(e.target.value))}
+                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                  >
+                    {getAvailableThicknesses(boardId, quality).map((t) => (
+                      <option key={t} value={t}>
+                        {t} mm
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
           </div>
@@ -762,23 +1225,119 @@ export default function WorkstationCalculator() {
               Configuration
             </h2>
             <div className="space-y-6">
+              <div className="p-4 bg-indigo-50 border border-indigo-100/50 rounded-xl">
+                <label className="block text-sm font-semibold text-indigo-900 mb-2">
+                  Table Top Category
+                </label>
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2 text-sm text-indigo-950 font-medium cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="topMaterialCategory"
+                      value="wood"
+                      checked={topMaterialCategory === "wood"}
+                      onChange={() => setTopMaterialCategory("wood")}
+                      className="text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                    />
+                    Wood / Laminate Board
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-indigo-950 font-medium cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="topMaterialCategory"
+                      value="marble"
+                      checked={topMaterialCategory === "marble"}
+                      onChange={() => setTopMaterialCategory("marble")}
+                      className="text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                    />
+                    Marble Top (Onyx)
+                  </label>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {topMaterialCategory === "marble" && (
+                  <div className="sm:col-span-2 p-3 bg-amber-50/55 border border-amber-100 rounded-lg">
+                    <label className="block text-sm font-medium text-amber-900 mb-1">
+                      Marble Top Material
+                    </label>
+                    <select
+                      value={marbleTypeId}
+                      onChange={(e) => setMarbleTypeId(e.target.value)}
+                      className="block w-full px-4 py-2 bg-white border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 transition-all outline-none font-semibold text-amber-950"
+                    >
+                      {MARBLE_TYPES.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} @ ₹{m.costPerSqFt.toLocaleString()}/sq.ft
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Board Material
+                    {topMaterialCategory === "marble" ? "Structure Wood Quality" : "Board Quality"}
+                  </label>
+                  <select
+                    value={quality}
+                    onChange={(e) => setQuality(e.target.value)}
+                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
+                  >
+                    <option value="affordable">Affordable</option>
+                    <option value="standard">Standard</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {topMaterialCategory === "marble" ? "Structure Wood Material" : "Board Material"}
                   </label>
                   <select
                     value={boardId}
                     onChange={(e) => setBoardId(e.target.value)}
                     className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
                   >
-                    {BOARDS.map((b) => (
+                    {getBoards(quality).map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name} (₹{getTopRate(b.id, b.costPerSqFt, topThickness)}/sq.ft)
+                        {b.name} (₹
+                        {getTopRate(b.id, b.costPerSqFt, topThickness, quality)}
+                        /sq.ft)
                       </option>
                     ))}
                   </select>
                 </div>
+                {topMaterialCategory !== "marble" && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Inner Mica / Laminate
+                      </label>
+                      <select
+                        value={innerMica}
+                        onChange={(e) => setInnerMica(e.target.value)}
+                        className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-gray-950 font-medium"
+                      >
+                        <option value="none">None (₹0/sq.ft)</option>
+                        <option value="0.8">0.8 mm (₹35/sq.ft)</option>
+                        <option value="1.0">1.0 mm (₹56/sq.ft)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Outer Mica / Laminate
+                      </label>
+                      <select
+                        value={outerMica}
+                        onChange={(e) => setOuterMica(e.target.value)}
+                        className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-gray-950 font-medium"
+                      >
+                        <option value="none">None (₹0/sq.ft)</option>
+                        <option value="0.8">0.8 mm (₹35/sq.ft)</option>
+                        <option value="1.0">1.0 mm (₹56/sq.ft)</option>
+                      </select>
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Understructure (Legs)
@@ -927,6 +1486,18 @@ export default function WorkstationCalculator() {
                         </select>
                       </div>
                     )}
+                    {includeModesty && legId !== "board" && (
+                      <div className="ml-8 mt-1">
+                        <select
+                          value={metalModestyType}
+                          onChange={(e) => setMetalModestyType(e.target.value)}
+                          className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="plain">Plain Metal Sheet</option>
+                          <option value="cnc">CNC Design Panel</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   <label className="flex items-center gap-3 cursor-pointer">
@@ -945,6 +1516,74 @@ export default function WorkstationCalculator() {
                       </span>
                     </div>
                   </label>
+
+                  {/* Undermount Drawer Option */}
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeDrawer}
+                        onChange={(e) => setIncludeDrawer(e.target.checked)}
+                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 transition-colors"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900 block">
+                          Include Pedestal Drawer Unit
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          Adds undermount/attached drawers.
+                        </span>
+                      </div>
+                    </label>
+
+                    {includeDrawer && (
+                      <div className="ml-8 mt-1 space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Number of Drawers
+                          </label>
+                          <select
+                            value={drawerCount}
+                            onChange={(e) => setDrawerCount(Number(e.target.value))}
+                            className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value={1}>1 Drawer</option>
+                            <option value={2}>2 Drawers</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Drawer Type
+                          </label>
+                          <select
+                            value={singleDrawerType}
+                            onChange={(e) => setSingleDrawerType(e.target.value)}
+                            className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="corner">Corner (Compact)</option>
+                            <option value="full">{drawerCount === 1 ? "Full Width (Table width - 36mm)" : "Equal Widths (Table width - 36mm)"}</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CPU Stand Option */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      CPU Stand
+                    </label>
+                    <select
+                      value={cpuStandType}
+                      onChange={(e) => setCpuStandType(e.target.value)}
+                      className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none"
+                    >
+                      <option value="none">None</option>
+                      <option value="trolley">CPU Trolley</option>
+                      <option value="mount">CPU Mount Bracket</option>
+                    </select>
+                  </div>
+
                 </div>
               </div>
             </div>
@@ -956,10 +1595,13 @@ export default function WorkstationCalculator() {
           <div className="sticky top-24 bg-gray-900 rounded-2xl p-6 text-white overflow-hidden relative">
             <div className="absolute top-0 right-0 -mr-12 -mt-12 w-48 h-48 bg-indigo-500 rounded-full opacity-10 blur-3xl mix-blend-screen pointer-events-none"></div>
 
-            <h2 className="text-lg font-medium text-gray-100 flex items-center gap-2 mb-6">
+            <h2 className="text-lg font-medium text-gray-100 flex items-center gap-2 mb-2">
               <FileBox className="w-5 h-5 text-indigo-400" />
               Estimation
             </h2>
+            <div className="text-xs text-gray-400 mb-6 pb-4 border-b border-gray-800">
+              {displayMaterialName} • {displayThickness}mm (₹{topRate}/sq.ft)
+            </div>
 
             <div className="space-y-4 mb-6 relative z-10">
               <div className="flex flex-col mb-1 border-gray-800/50">
@@ -1066,6 +1708,14 @@ export default function WorkstationCalculator() {
               </button>
 
               <button
+                onClick={copyImagePrompt}
+                className="w-full flex items-center justify-center gap-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 py-2.5 px-4 rounded-lg font-medium border border-indigo-500/30 transition-colors mb-3"
+              >
+                <Copy className="w-4 h-4" />
+                {copiedPrompt ? "Copied!" : "Copy Image Prompt"}
+              </button>
+
+              <button
                 onClick={() => setShowExportModal(true)}
                 className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"
               >
@@ -1089,7 +1739,7 @@ export default function WorkstationCalculator() {
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
-            
+
             <div className="space-y-4 mb-6">
               <div className="flex flex-col gap-2 p-3 border rounded-lg hover:bg-gray-50">
                 <label className="flex items-center gap-3 cursor-pointer">
@@ -1099,7 +1749,9 @@ export default function WorkstationCalculator() {
                     onChange={(e) => setExportIncludeModesty(e.target.checked)}
                     className="w-4 h-4 text-indigo-600 rounded border-gray-300"
                   />
-                  <span className="text-sm font-medium">Include Modesty Panel</span>
+                  <span className="text-sm font-medium">
+                    Include Modesty Panel
+                  </span>
                 </label>
                 {exportIncludeModesty && (
                   <select
@@ -1121,11 +1773,15 @@ export default function WorkstationCalculator() {
                   onChange={(e) => setExportIncludePedestal(e.target.checked)}
                   className="w-4 h-4 text-indigo-600 rounded border-gray-300"
                 />
-                <span className="text-sm font-medium">Include Fixed Pedestal</span>
+                <span className="text-sm font-medium">
+                  Include Fixed Pedestal
+                </span>
               </label>
 
               <div className="space-y-2 p-3 border rounded-lg">
-                <label className="text-sm font-medium text-gray-900">Wire Management</label>
+                <label className="text-sm font-medium text-gray-900">
+                  Wire Management
+                </label>
                 <select
                   value={exportWireManagement}
                   onChange={(e) => setExportWireManagement(e.target.value)}
@@ -1138,23 +1794,40 @@ export default function WorkstationCalculator() {
               </div>
 
               <div className="space-y-2 p-3 border rounded-lg">
-                <label className="text-sm font-medium text-gray-900">Top Thickness</label>
+                <label className="text-sm font-medium text-gray-900">
+                  Top Thickness
+                </label>
                 <select
                   value={exportThickness}
                   onChange={(e) => setExportThickness(e.target.value)}
                   className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
                 >
-                  <option value="all">All (17mm, 18mm, 25mm, 35mm, 36mm)</option>
-                  <option value="17">17 mm</option>
-                  <option value="18">18 mm</option>
-                  <option value="25">25 mm</option>
-                  <option value="35">35 mm</option>
-                  <option value="36">36 mm</option>
+                  <option value="all">All Available</option>
+                  {Array.from(
+                    new Set(
+                      exportMaterial === "all"
+                        ? getBoards(exportQuality).flatMap((b) =>
+                            getAvailableThicknesses(b.id, exportQuality),
+                          )
+                        : getAvailableThicknesses(
+                            exportMaterial,
+                            exportQuality,
+                          ),
+                    ),
+                  )
+                    .sort((a, b) => a - b)
+                    .map((t) => (
+                      <option key={t} value={t}>
+                        {t} mm
+                      </option>
+                    ))}
                 </select>
               </div>
 
               <div className="space-y-2 p-3 border rounded-lg">
-                <label className="text-sm font-medium text-gray-900">Understructure (Legs)</label>
+                <label className="text-sm font-medium text-gray-900">
+                  Understructure (Legs)
+                </label>
                 <select
                   value={exportLegId}
                   onChange={(e) => setExportLegId(e.target.value)}
@@ -1185,16 +1858,64 @@ export default function WorkstationCalculator() {
               </div>
 
               <div className="space-y-2 p-3 border rounded-lg">
-                <label className="text-sm font-medium text-gray-900">Board Material</label>
+                <label className="text-sm font-medium text-gray-900">
+                  Board Option
+                </label>
+                <select
+                  value={exportQuality}
+                  onChange={(e) => setExportQuality(e.target.value)}
+                  className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="affordable">Affordable</option>
+                </select>
+              </div>
+
+              <div className="space-y-2 p-3 border rounded-lg">
+                <label className="text-sm font-medium text-gray-900">
+                  Board Material
+                </label>
                 <select
                   value={exportMaterial}
                   onChange={(e) => setExportMaterial(e.target.value)}
                   className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
                 >
                   <option value="all">All Materials</option>
-                  {BOARDS.map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
+                  {getBoards(exportQuality).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
                   ))}
+                </select>
+              </div>
+
+              <div className="space-y-2 p-3 border rounded-lg">
+                <label className="text-sm font-medium text-gray-900">
+                  Export Inner Mica
+                </label>
+                <select
+                  value={exportInnerMica}
+                  onChange={(e) => setExportInnerMica(e.target.value)}
+                  className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
+                >
+                  <option value="none">None</option>
+                  <option value="0.8">0.8 mm (Rs. 35/sq.ft)</option>
+                  <option value="1.0">1.0 mm (Rs. 56/sq.ft)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2 p-3 border rounded-lg">
+                <label className="text-sm font-medium text-gray-900">
+                  Export Outer Mica
+                </label>
+                <select
+                  value={exportOuterMica}
+                  onChange={(e) => setExportOuterMica(e.target.value)}
+                  className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
+                >
+                  <option value="none">None</option>
+                  <option value="0.8">0.8 mm (Rs. 35/sq.ft)</option>
+                  <option value="1.0">1.0 mm (Rs. 56/sq.ft)</option>
                 </select>
               </div>
             </div>

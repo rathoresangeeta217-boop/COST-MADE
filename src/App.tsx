@@ -9,6 +9,7 @@ import Home from './pages/Home';
 import PedestalCalculator from './pages/PedestalCalculator';
 import WorkstationCalculator from './pages/WorkstationCalculator';
 import LShapeTableCalculator from './pages/LShapeTableCalculator';
+import CustomStorageCalculator from './pages/CustomStorageCalculator';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="calculator/pedestal" element={<PedestalCalculator />} />
           <Route path="calculator/workstation" element={<WorkstationCalculator />} />
           <Route path="calculator/l-shape-table" element={<LShapeTableCalculator />} />
+          <Route path="calculator/custom-storage" element={<CustomStorageCalculator />} />
         </Route>
       </Routes>
     </BrowserRouter>

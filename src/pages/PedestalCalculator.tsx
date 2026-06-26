@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Calculator,
   LayoutGrid,
@@ -8,17 +8,117 @@ import {
   Download,
   FileSpreadsheet,
   X,
+  Copy,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
-const BOARDS = [
-  { id: "plpb", name: "PLPB", costPerSqFt: 34 },
-  { id: "mdf", name: "MDF", costPerSqFt: 60 },
-  { id: "hdhmr", name: "HDHMR", costPerSqFt: 74 },
-  { id: "ply_laminate", name: "PLY LAMINATE", costPerSqFt: 130 },
+export const getBoards = (quality: string) => [
+  { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
+  { id: "mdf", name: "MDF", costPerSqFt: quality === "affordable" ? 38 : 61 },
+  {
+    id: "hdhmr",
+    name: "HDHMR",
+    costPerSqFt: quality === "affordable" ? 99 : 74,
+  },
+  {
+    id: "ply_laminate",
+    name: "PLY LAMINATE",
+    costPerSqFt: quality === "affordable" ? 55 : 130,
+  },
+  {
+    id: "ply_century_one_mm_laminate",
+    name: "PLY CENTURY ONE MM LAMINATE",
+    costPerSqFt: 230,
+  },
 ];
+
+export const getAvailableThicknesses = (
+  boardId: string,
+  quality: string,
+): number[] => {
+  if (quality === "affordable") {
+    switch (boardId) {
+      case "plpb":
+        return [11, 17, 18, 25];
+      case "mdf":
+        return [17, 18, 25, 35];
+      case "hdhmr":
+        return [16.75, 18, 25];
+      case "ply_laminate":
+      case "ply_century_one_mm_laminate":
+        return [6, 9, 12, 15, 16, 18];
+      default:
+        return [18];
+    }
+  } else {
+    switch (boardId) {
+      case "plpb":
+        return [18, 25, 36];
+      case "hdhmr":
+        return [18, 25];
+      case "mdf":
+        return [18, 25, 36];
+      case "ply_century_one_mm_laminate":
+      case "ply_laminate":
+        return [18, 25];
+      default:
+        return [18];
+    }
+  }
+};
+
+export const getBoardRate = (
+  boardId: string,
+  baseRate: number,
+  thickness: number,
+  quality: string,
+): number => {
+  if (quality === "affordable") {
+    if (boardId === "plpb") {
+      if (thickness === 11) return 27;
+      if (thickness === 17) return 29;
+      if (thickness === 18) return 34;
+      if (thickness === 25) return 42;
+    }
+    if (boardId === "hdhmr") {
+      if (Math.abs(thickness - 16.75) < 0.1) return 88;
+      if (thickness === 18) return 99;
+      if (thickness === 25) return 135;
+    }
+    if (boardId === "ply_laminate") {
+      if (thickness === 6) return 22;
+      if (thickness === 9) return 35;
+      if (thickness === 12) return 38;
+      if (thickness === 15) return 46;
+      if (thickness === 16) return 46;
+      if (thickness === 18) return 55;
+    }
+    if (boardId === "mdf") {
+      if (thickness === 17) return 55;
+      if (thickness === 18) return 60;
+      if (thickness === 25) return 80;
+      if (thickness === 35) return 112;
+    }
+  } else {
+    // Standard quality logic
+    if (boardId === "plpb") {
+      if (thickness === 18) return 49;
+      if (thickness === 25) return 63;
+      if (thickness === 36) return 98;
+    }
+    if (boardId === "hdhmr") {
+      if (thickness === 25) return 108;
+    }
+    if (boardId === "mdf") {
+      if (thickness === 18) return 61;
+      if (thickness === 25) return 83;
+      if (thickness === 36) return 122;
+    }
+  }
+  return baseRate * (thickness / 18);
+};
 
 const HARDWARE_CHANNEL_COST = 235;
 const HARDWARE_HANDLE_COST = 50;
@@ -51,6 +151,7 @@ export function calculatePedestalCost({
   depth,
   typeId,
   boardId,
+  boardThickness = 18,
   wideStyle,
   wideInternalConfig,
   drawerLockType,
@@ -60,8 +161,19 @@ export function calculatePedestalCost({
   includeShutterHandles,
   includeCastors,
   numShelves,
+  quality = "standard",
+  innerMica = "none",
+  outerMica = "none",
 }: any) {
   let pType = PEDESTAL_TYPES.find((t) => t.id === typeId)!;
+  const boards = getBoards(quality);
+  let board = boards.find((b) => b.id === boardId)!;
+
+  const boardRate = getBoardRate(boardId, board.costPerSqFt, boardThickness, quality);
+
+  const innerRate = innerMica === "0.8" ? 35 : innerMica === "1.0" ? 56 : 0;
+  const outerRate = outerMica === "0.8" ? 35 : outerMica === "1.0" ? 56 : 0;
+  const totalMicaRate = innerRate + outerRate;
   let numDrawers = pType.drawers;
   let numShutters = pType.shutters;
   let partitions = 0;
@@ -95,8 +207,6 @@ export function calculatePedestalCost({
     // Defer this update so it doesn't cause a bad state update within useMemo
     setTimeout(() => setDrawerLockType("none"), 0);
   }
-
-  const board = BOARDS.find((b) => b.id === boardId)!;
 
   // Drawer internal box dimensions (mm)
   let dw = Math.max(0, width - 36);
@@ -143,7 +253,7 @@ export function calculatePedestalCost({
       ebMm: (height * 2 + depth) * 2,
     },
     {
-      label: "Back Panel",
+      label: "Back Panel (9mm PLPB)",
       w: width,
       l: height,
       qty: 1,
@@ -269,15 +379,21 @@ export function calculatePedestalCost({
     const wasteSqFt = areaSqFt * 0.15;
     const totalAreaSqFt = areaSqFt + wasteSqFt;
 
-    const rate = p.customCostPerSqFt ?? board.costPerSqFt;
+    const rate = p.customCostPerSqFt ?? (boardRate + totalMicaRate);
     const pCost = totalAreaSqFt * rate;
 
     bCostTotal += areaSqFt * rate;
     wCostTotal += wasteSqFt * rate;
     tSqFt += areaSqFt;
 
+    const micaLabels = [];
+    if (innerMica !== "none") micaLabels.push(`Inner ${innerMica}mm`);
+    if (outerMica !== "none") micaLabels.push(`Outer ${outerMica}mm`);
+    const micaSuffix = !p.customCostPerSqFt && micaLabels.length > 0 ? ` with Mica (${micaLabels.join(" + ")})` : "";
+
     return {
       ...p,
+      label: `${p.label}${micaSuffix}`,
       areaSqFt,
       wasteSqFt,
       totalAreaSqFt,
@@ -427,7 +543,7 @@ export function calculatePedestalCost({
     cost: 15,
   });
 
-  const lCost = LABOR_COST;
+  const lCost = Math.round((bCostTotal + wCostTotal + hCost) * 0.20);
   const pCost = PACKING_COST;
 
   // total material + labor + 15% waste is already captured in wCostTotal.
@@ -462,6 +578,7 @@ export default function PedestalCalculator() {
   const [depth, setDepth] = useState<number>(450); // mm
   const [typeId, setTypeId] = useState<string>("3_drawer");
   const [boardId, setBoardId] = useState<string>("mdf");
+  const [boardThickness, setBoardThickness] = useState<number>(18);
   const [drawerLockType, setDrawerLockType] = useState<string>("central"); // 'central', 'individual', 'none'
   const [includeHandles, setIncludeHandles] = useState<boolean>(true);
   const [includeShutterLocks, setIncludeShutterLocks] = useState<boolean>(true);
@@ -473,9 +590,23 @@ export default function PedestalCalculator() {
   const [wideInternalConfig, setWideInternalConfig] =
     useState<string>("1_vert_1_horiz");
   const [numShelves, setNumShelves] = useState<number>(1);
+  const [quality, setQuality] = useState<string>("standard");
+
+  const [innerMica, setInnerMica] = useState<string>("none");
+  const [outerMica, setOuterMica] = useState<string>("none");
 
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [exportMaterial, setExportMaterial] = useState<string>("all");
+  const [exportQuality, setExportQuality] = useState<string>("standard");
+  const [exportInnerMica, setExportInnerMica] = useState<string>("none");
+  const [exportOuterMica, setExportOuterMica] = useState<string>("none");
+
+  useEffect(() => {
+    const available = getAvailableThicknesses(boardId, quality);
+    if (!available.includes(boardThickness)) {
+      setBoardThickness(available[0]);
+    }
+  }, [boardId, quality, boardThickness]);
 
   const {
     numDrawers,
@@ -498,6 +629,7 @@ export default function PedestalCalculator() {
       depth,
       typeId,
       boardId,
+      boardThickness,
       wideStyle,
       wideInternalConfig,
       drawerLockType,
@@ -507,6 +639,9 @@ export default function PedestalCalculator() {
       includeShutterHandles,
       includeCastors,
       numShelves,
+      quality,
+      innerMica,
+      outerMica,
     });
   }, [
     height,
@@ -514,6 +649,7 @@ export default function PedestalCalculator() {
     depth,
     typeId,
     boardId,
+    boardThickness,
     includeHandles,
     drawerLockType,
     includeShutterHandles,
@@ -522,12 +658,41 @@ export default function PedestalCalculator() {
     wideStyle,
     wideInternalConfig,
     numShelves,
+    quality,
+    innerMica,
+    outerMica,
   ]);
+
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+
+  const copyImagePrompt = () => {
+    let topName = "";
+    const topBoard = getBoards(quality).find((b) => b.id === boardId)?.name || "Board";
+    topName = topBoard === "PLPB" || topBoard === "MDF" || topBoard === "HDHMR" ? topBoard + " wood" : topBoard;
+
+    let typeStr = PEDESTAL_TYPES.find(t=>t.id === typeId)?.name || "Storage unit";
+    if (typeId === "wide") {
+      if (wideStyle === "2_shelves") typeStr = "Wide open storage with 2 shelves";
+      if (wideStyle === "1_vertical_1_shelve") typeStr = "Wide storage with 1 vertical partition and 1 shelf";
+      if (wideStyle === "2_drawer_2_shutter") typeStr = "Wide storage with 2 drawers and 2 lower shutters";
+    }
+
+    const lockDesc = drawerLockType !== "none" ? " includes locks," : "";
+    const handleDesc = includeHandles ? " includes metal handles," : " handle-less design,";
+    const castorDesc = includeCastors ? " mounted on castors/wheels." : " resting flat.";
+
+    const prompt = `A highly realistic, professional product photography studio shot of a modern office drawer pedestal / storage unit. The unit is ${width}mm wide, ${depth}mm deep, and ${height}mm high. It is made of ${topName}. The configuration is: ${typeStr}. It${lockDesc}${handleDesc} and is${castorDesc} Clean, ultra-minimalist solid white background. Studio lighting, highly detailed, 8k resolution, photorealistic furniture photography.`;
+    
+    navigator.clipboard.writeText(prompt);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2000);
+  };
 
   const downloadPDF = () => {
     const doc = new jsPDF();
     const pType = PEDESTAL_TYPES.find((t) => t.id === typeId)!;
-    const board = BOARDS.find((b) => b.id === boardId)!;
+    const boards = getBoards(quality);
+    const board = boards.find((b) => b.id === boardId)!;
 
     let typeName = pType.name;
     if (width >= 900) {
@@ -554,7 +719,10 @@ export default function PedestalCalculator() {
       body: [
         ["Dimensions (W x H x D)", `${width} mm x ${height} mm x ${depth} mm`],
         ["Style", typeName],
-        ["Board Material", `${board.name} (Rs. ${board.costPerSqFt}/sq.ft)`],
+        ["Board Material", `${board.name} (Rs. ${getBoardRate(boardId, board.costPerSqFt, boardThickness, quality)}/sq.ft)`],
+        ["Board Thickness", `${boardThickness} mm`],
+        ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
+        ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`],
         ["Drawers", numDrawers.toString()],
         ["Shutters", numShutters.toString()],
       ],
@@ -631,7 +799,8 @@ export default function PedestalCalculator() {
     const wb = XLSX.utils.book_new();
 
     const pType = PEDESTAL_TYPES.find((t) => t.id === typeId)!;
-    const board = BOARDS.find((b) => b.id === boardId)!;
+    const boards = getBoards(quality);
+    const board = boards.find((b) => b.id === boardId)!;
 
     let typeName = pType.name;
     if (width >= 900) {
@@ -654,7 +823,10 @@ export default function PedestalCalculator() {
       ["Specification", "Details"],
       ["Dimensions (W x H x D)", `${width} mm x ${height} mm x ${depth} mm`],
       ["Style", typeName],
-      ["Board Material", `${board.name} (Rs. ${board.costPerSqFt}/sq.ft)`],
+      ["Board Material", `${board.name} (Rs. ${getBoardRate(boardId, board.costPerSqFt, boardThickness, quality)}/sq.ft)`],
+      ["Board Thickness", `${boardThickness} mm`],
+      ["Inner Mica / Laminate", innerMica === "none" ? "None" : `${innerMica} mm (Rs. ${innerMica === "0.8" ? 35 : 56}/sq.ft)`],
+      ["Outer Mica / Laminate", outerMica === "none" ? "None" : `${outerMica} mm (Rs. ${outerMica === "0.8" ? 35 : 56}/sq.ft)`],
       ["Drawers", numDrawers.toString()],
       ["Shutters", numShutters.toString()],
     ];
@@ -809,6 +981,12 @@ export default function PedestalCalculator() {
     const wb = XLSX.utils.book_new();
 
     const masterData = [];
+    masterData.push(["Pedestal Master Price List Report"]);
+    masterData.push(["Generated On", new Date().toLocaleDateString()]);
+    masterData.push(["Board Option", exportQuality.toUpperCase()]);
+    masterData.push(["Inner Mica / Laminate", exportInnerMica === "none" ? "None" : `${exportInnerMica} mm`]);
+    masterData.push(["Outer Mica / Laminate", exportOuterMica === "none" ? "None" : `${exportOuterMica} mm`]);
+    masterData.push([]); // blank row
     masterData.push([
       "Board Material",
       "Dimensions (WxHxD mm)",
@@ -820,10 +998,11 @@ export default function PedestalCalculator() {
     const heights = [550, 600, 720];
     const depths = [400, 450, 500];
 
+    const boards = getBoards(exportQuality);
     const boardsToExport =
       exportMaterial === "all"
-        ? BOARDS
-        : BOARDS.filter((b) => b.id === exportMaterial);
+          ? boards
+          : boards.filter((b) => b.id === exportMaterial);
 
     // Build the master data
     for (const board of boardsToExport) {
@@ -850,7 +1029,10 @@ export default function PedestalCalculator() {
                   includeShutterLocks: true,
                   includeShutterHandles: true,
                   includeCastors: false,
-                  numShelves: numShelves,
+                  numShelves: 1,
+                  quality: exportQuality,
+                  innerMica: exportInnerMica,
+                  outerMica: exportOuterMica,
                 });
 
                 masterData.push([
@@ -882,9 +1064,12 @@ export default function PedestalCalculator() {
                       includeShutterHandles: true,
                       includeCastors: false,
                       numShelves: numShelves,
+                      quality: exportQuality,
+                      innerMica: exportInnerMica,
+                      outerMica: exportOuterMica,
                     });
                     const wsName =
-                      "2 Drawers + 1 Shutter (Wide, " +
+                      "2 Drawers + 2 Shutters (Wide, " +
                       (wi === "1_vert_1_horiz"
                         ? "1 Vert & 1 Horiz"
                         : "2 Horiz") +
@@ -911,6 +1096,9 @@ export default function PedestalCalculator() {
                     includeShutterHandles: true,
                     includeCastors: false,
                     numShelves: numShelves,
+                    quality: exportQuality,
+                    innerMica: exportInnerMica,
+                    outerMica: exportOuterMica,
                   });
                   const wsName =
                     ws === "2_shelves"
@@ -1118,18 +1306,80 @@ export default function PedestalCalculator() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Board Type
+                  Board Quality
                 </label>
                 <select
-                  value={boardId}
-                  onChange={(e) => setBoardId(e.target.value)}
+                  value={quality}
+                  onChange={(e) => setQuality(e.target.value)}
                   className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
                 >
-                  {BOARDS.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} (₹{b.costPerSqFt}/sq.ft)
-                    </option>
-                  ))}
+                  <option value="affordable">Affordable</option>
+                  <option value="standard">Standard</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Board Type
+                  </label>
+                  <select
+                    value={boardId}
+                    onChange={(e) => setBoardId(e.target.value)}
+                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                  >
+                    {getBoards(quality).map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Board Thickness
+                  </label>
+                  <select
+                    value={boardThickness}
+                    onChange={(e) => setBoardThickness(Number(e.target.value))}
+                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-gray-900"
+                  >
+                    {getAvailableThicknesses(boardId, quality).map((t) => (
+                      <option key={t} value={t}>
+                        {t} mm
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Inner Mica / Laminate
+                </label>
+                <select
+                  value={innerMica}
+                  onChange={(e) => setInnerMica(e.target.value)}
+                  className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-gray-900"
+                >
+                  <option value="none">None (₹0/sq.ft)</option>
+                  <option value="0.8">0.8 mm (₹35/sq.ft)</option>
+                  <option value="1.0">1.0 mm (₹56/sq.ft)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Outer Mica / Laminate
+                </label>
+                <select
+                  value={outerMica}
+                  onChange={(e) => setOuterMica(e.target.value)}
+                  className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-gray-900"
+                >
+                  <option value="none">None (₹0/sq.ft)</option>
+                  <option value="0.8">0.8 mm (₹35/sq.ft)</option>
+                  <option value="1.0">1.0 mm (₹56/sq.ft)</option>
                 </select>
               </div>
 
@@ -1290,10 +1540,13 @@ export default function PedestalCalculator() {
             {/* Background Decoration */}
             <div className="absolute top-0 right-0 -mr-12 -mt-12 w-48 h-48 bg-indigo-500 rounded-full opacity-10 blur-3xl mix-blend-screen pointer-events-none"></div>
 
-            <h2 className="text-lg font-medium text-gray-100 flex items-center gap-2 mb-6">
+            <h2 className="text-lg font-medium text-gray-100 flex items-center gap-2 mb-2">
               <FileBox className="w-5 h-5 text-indigo-400" />
               Estimation
             </h2>
+            <div className="text-xs text-gray-400 mb-6 pb-4 border-b border-gray-800">
+              {getBoards(quality).find((b) => b.id === boardId)?.name} • {boardThickness}mm (₹{getBoardRate(boardId, getBoards(quality).find((b) => b.id === boardId)?.costPerSqFt ?? 0, boardThickness, quality)}/sq.ft)
+            </div>
 
             <div className="space-y-4 mb-6 relative z-10">
               <div className="flex flex-col mb-1 border-gray-800/50">
@@ -1421,6 +1674,13 @@ export default function PedestalCalculator() {
                   Download Config Excel
                 </button>
                 <button
+                  onClick={copyImagePrompt}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 py-2.5 px-4 rounded-lg font-medium border border-indigo-500/30 transition-colors"
+                >
+                  <Copy className="w-4 h-4" />
+                  {copiedPrompt ? "Copied!" : "Copy Image Prompt"}
+                </button>
+                <button
                   onClick={() => setShowExportModal(true)}
                   className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"
                 >
@@ -1449,6 +1709,20 @@ export default function PedestalCalculator() {
             <div className="space-y-4 mb-6">
               <div className="space-y-2 p-3 border rounded-lg">
                 <label className="text-sm font-medium text-gray-900">
+                  Board Option
+                </label>
+                <select
+                  value={exportQuality}
+                  onChange={(e) => setExportQuality(e.target.value)}
+                  className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="affordable">Affordable</option>
+                </select>
+              </div>
+
+              <div className="space-y-2 p-3 border rounded-lg">
+                <label className="text-sm font-medium text-gray-900">
                   Board Material
                 </label>
                 <select
@@ -1457,11 +1731,41 @@ export default function PedestalCalculator() {
                   className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
                 >
                   <option value="all">All Materials</option>
-                  {BOARDS.map((b) => (
+                  {getBoards(exportQuality).map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div className="space-y-2 p-3 border rounded-lg">
+                <label className="text-sm font-medium text-gray-900">
+                  Export Inner Mica
+                </label>
+                <select
+                  value={exportInnerMica}
+                  onChange={(e) => setExportInnerMica(e.target.value)}
+                  className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
+                >
+                  <option value="none">None</option>
+                  <option value="0.8">0.8 mm (Rs. 35/sq.ft)</option>
+                  <option value="1.0">1.0 mm (Rs. 56/sq.ft)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2 p-3 border rounded-lg">
+                <label className="text-sm font-medium text-gray-900">
+                  Export Outer Mica
+                </label>
+                <select
+                  value={exportOuterMica}
+                  onChange={(e) => setExportOuterMica(e.target.value)}
+                  className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
+                >
+                  <option value="none">None</option>
+                  <option value="0.8">0.8 mm (Rs. 35/sq.ft)</option>
+                  <option value="1.0">1.0 mm (Rs. 56/sq.ft)</option>
                 </select>
               </div>
             </div>
