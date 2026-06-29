@@ -1,12 +1,17 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProjectStore } from '../store/useProjectStore';
-import { Plus, Download, FileSpreadsheet, Package, Trash2 } from 'lucide-react';
+import { Plus, Download, FileSpreadsheet, Package, Trash2, Edit2, Check, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function ProjectDetails() {
   const { projectId } = useParams();
-  const { projects, deleteItemFromProject } = useProjectStore();
+  const { projects, deleteItemFromProject, updateItemInProject } = useProjectStore();
   const project = projects.find((p) => p.id === projectId);
+  
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editQty, setEditQty] = useState(1);
 
   if (!project) {
     return (
@@ -19,19 +24,21 @@ export default function ProjectDetails() {
 
   const handleDownloadItemBOM = (item: any) => {
     const wb = XLSX.utils.book_new();
+    const qty = item.quantity || 1;
 
     const summaryData = [
       { "Property": "Item Name", "Value": item.name },
       { "Property": "Product Type", "Value": item.productType },
-      { "Property": "Total Cost (Rs)", "Value": item.costSummary.totalCost }
+      { "Property": "Quantity", "Value": qty },
+      { "Property": "Total Cost (Rs)", "Value": (item.costSummary.totalCost || 0) * qty }
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Summary");
 
     const boards = item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces || [];
     const boardData = boards.filter((b: any) => !b.label?.includes('Edge Banding')).map((b: any) => ({
       "Description": b.label || '',
-      "Area/Qty": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)).toFixed(2)),
-      "Cost (Rs)": Number((b.cost || 0).toFixed(2))
+      "Area/Qty": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)) * qty).toFixed(2),
+      "Cost (Rs)": Number(((b.cost || 0) * qty).toFixed(2))
     }));
     if (boardData.length > 0) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(boardData), "Board Details");
@@ -39,16 +46,16 @@ export default function ProjectDetails() {
 
     const ebData = boards.filter((b: any) => b.label?.includes('Edge Banding')).map((b: any) => ({
       "Description": b.label || '',
-      "Length (Meters)": Number((b.meters || b.qty || (b.cost / 13) || 0).toFixed(2)),
-      "Cost (Rs)": Number((b.cost || 0).toFixed(2))
+      "Length (Meters)": Number((b.meters || b.qty || (b.cost / 13) || 0) * qty).toFixed(2),
+      "Cost (Rs)": Number(((b.cost || 0) * qty).toFixed(2))
     }));
     
     const hw = item.costSummary.hardwareDetails || item.costSummary.hardware || [];
     hw.filter((h: any) => h.label?.includes('Edge Banding')).forEach((h: any) => {
       ebData.push({
         "Description": h.label || '',
-        "Length (Meters)": Number((h.qty || 0).toFixed(2)),
-        "Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+        "Length (Meters)": Number((h.qty || 0) * qty).toFixed(2),
+        "Cost (Rs)": Number(((h.cost || (h.qty * (h.unitPrice || h.rate || 0))) * qty).toFixed(2))
       });
     });
     if (ebData.length > 0) {
@@ -57,10 +64,10 @@ export default function ProjectDetails() {
 
     const hwData = hw.filter((h: any) => !h.label?.includes('Edge Banding')).map((h: any) => ({
       "Description": h.label || '',
-      "Quantity": h.qty,
+      "Quantity": h.qty * qty,
       "Unit": h.unitLabel || h.unit || 'pcs',
       "Unit Price (Rs)": h.unitPrice || h.rate || 0,
-      "Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+      "Cost (Rs)": Number(((h.cost || (h.qty * (h.unitPrice || h.rate || 0))) * qty).toFixed(2))
     }));
     if (hwData.length > 0) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hwData), "Hardware Details");
@@ -69,7 +76,7 @@ export default function ProjectDetails() {
     const labor = item.costSummary.laborDetails || [];
     const laborData = labor.map((l: any) => ({
       "Description": l.label || '',
-      "Cost (Rs)": Number((l.cost || 0).toFixed(2))
+      "Cost (Rs)": Number(((l.cost || 0) * qty).toFixed(2))
     }));
     if (laborData.length > 0) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborData), "Labor Details");
@@ -86,7 +93,8 @@ export default function ProjectDetails() {
       "Sr No": index + 1,
       "Item Name": item.name,
       "Product Type": item.productType,
-      "Cost (Rs)": item.costSummary.totalCost,
+      "Quantity": item.quantity || 1,
+      "Cost (Rs)": (item.costSummary.totalCost || 0) * (item.quantity || 1),
     }));
     
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
@@ -117,6 +125,7 @@ export default function ProjectDetails() {
       }
 
       // Aggregate Boards if available
+      const qty = item.quantity || 1;
       if (item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces) {
          const boards = item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces || [];
          boards.forEach((b: any) => {
@@ -130,8 +139,8 @@ export default function ProjectDetails() {
                const thickness = tMatch ? tMatch[1] : '0.8mm';
                const key = `${thickness} Edge Banding`;
                if (!edgeBandingAggregation[key]) edgeBandingAggregation[key] = { meters: 0, cost: 0 };
-               edgeBandingAggregation[key].meters += meters;
-               edgeBandingAggregation[key].cost += (b.cost || 0);
+               edgeBandingAggregation[key].meters += meters * qty;
+               edgeBandingAggregation[key].cost += (b.cost || 0) * qty;
              }
            } else {
              let area = b.totalSqFt || b.areaSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : 0);
@@ -163,8 +172,8 @@ export default function ProjectDetails() {
              
              const key = `${thickness} ${material}${mica}`;
              if (!boardAggregation[key]) boardAggregation[key] = { sqft: 0, cost: 0 };
-             boardAggregation[key].sqft += area;
-             boardAggregation[key].cost += (b.cost || 0);
+             boardAggregation[key].sqft += area * qty;
+             boardAggregation[key].cost += (b.cost || 0) * qty;
            }
          });
       }
@@ -182,15 +191,15 @@ export default function ProjectDetails() {
              }
              const key = `${thickness} Edge Banding`;
              if (!edgeBandingAggregation[key]) edgeBandingAggregation[key] = { meters: 0, cost: 0 };
-             edgeBandingAggregation[key].meters += h.qty;
-             edgeBandingAggregation[key].cost += (h.cost || (h.qty * (h.unitPrice || h.rate || 0)));
+             edgeBandingAggregation[key].meters += h.qty * qty;
+             edgeBandingAggregation[key].cost += (h.cost || (h.qty * (h.unitPrice || h.rate || 0))) * qty;
            } else {
              const key = label;
              if (!hardwareAggregation[key]) {
                hardwareAggregation[key] = { qty: 0, unitPrice: h.unitPrice || h.rate || 0, totalCost: 0, unitLabel: h.unitLabel || 'pcs' };
              }
-             hardwareAggregation[key].qty += h.qty;
-             hardwareAggregation[key].totalCost += (h.qty * (h.unitPrice || h.rate || 0));
+             hardwareAggregation[key].qty += h.qty * qty;
+             hardwareAggregation[key].totalCost += (h.qty * (h.unitPrice || h.rate || 0)) * qty;
            }
          });
       }
@@ -233,10 +242,12 @@ export default function ProjectDetails() {
 
     // Append individual item sheets
     project.items.forEach((item, index) => {
+      const qty = item.quantity || 1;
       const itemData: any[] = [];
       itemData.push({ "Description": "--- Item Details ---", "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
-      itemData.push({ "Description": `Name: ${item.name}`, "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": item.costSummary.totalCost });
+      itemData.push({ "Description": `Name: ${item.name}`, "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": (item.costSummary.totalCost || 0) * qty });
       itemData.push({ "Description": `Product Type: ${item.productType}`, "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+      itemData.push({ "Description": `Quantity: ${qty}`, "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
       
       const boards = item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces || [];
       const itemBoards = boards.filter((b: any) => !b.label?.includes('Edge Banding'));
@@ -245,26 +256,26 @@ export default function ProjectDetails() {
         itemBoards.forEach((b: any) => {
           itemData.push({
             "Description": b.label || '',
-            "Quantity/Area/Length": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)).toFixed(2)) + ' sq.ft',
+            "Quantity/Area/Length": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)) * qty).toFixed(2) + ' sq.ft',
             "Unit Price (Rs)": "",
-            "Total Cost (Rs)": Number((b.cost || 0).toFixed(2))
+            "Total Cost (Rs)": Number(((b.cost || 0) * qty).toFixed(2))
           });
         });
       }
 
       const itemEB = boards.filter((b: any) => b.label?.includes('Edge Banding')).map((b: any) => ({
         "Description": b.label || '',
-        "Quantity/Area/Length": Number((b.meters || b.qty || (b.cost / 13) || 0).toFixed(2)) + ' m',
+        "Quantity/Area/Length": Number((b.meters || b.qty || (b.cost / 13) || 0) * qty).toFixed(2) + ' m',
         "Unit Price (Rs)": "",
-        "Total Cost (Rs)": Number((b.cost || 0).toFixed(2))
+        "Total Cost (Rs)": Number(((b.cost || 0) * qty).toFixed(2))
       }));
       const hw = item.costSummary.hardwareDetails || item.costSummary.hardware || [];
       hw.filter((h: any) => h.label?.includes('Edge Banding')).forEach((h: any) => {
         itemEB.push({
           "Description": h.label || '',
-          "Quantity/Area/Length": Number((h.qty || 0).toFixed(2)) + ' m',
+          "Quantity/Area/Length": Number((h.qty || 0) * qty).toFixed(2) + ' m',
           "Unit Price (Rs)": h.unitPrice || h.rate || 0,
-          "Total Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+          "Total Cost (Rs)": Number(((h.cost || (h.qty * (h.unitPrice || h.rate || 0))) * qty).toFixed(2))
         });
       });
       if (itemEB.length > 0) {
@@ -278,9 +289,9 @@ export default function ProjectDetails() {
         itemHW.forEach((h: any) => {
           itemData.push({
             "Description": h.label || '',
-            "Quantity/Area/Length": `${h.qty} ${h.unitLabel || h.unit || 'pcs'}`,
+            "Quantity/Area/Length": `${h.qty * qty} ${h.unitLabel || h.unit || 'pcs'}`,
             "Unit Price (Rs)": h.unitPrice || h.rate || 0,
-            "Total Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+            "Total Cost (Rs)": Number(((h.cost || (h.qty * (h.unitPrice || h.rate || 0))) * qty).toFixed(2))
           });
         });
       }
@@ -293,7 +304,7 @@ export default function ProjectDetails() {
             "Description": l.label || '',
             "Quantity/Area/Length": "",
             "Unit Price (Rs)": "",
-            "Total Cost (Rs)": Number((l.cost || 0).toFixed(2))
+            "Total Cost (Rs)": Number(((l.cost || 0) * qty).toFixed(2))
           });
         });
       }
@@ -351,43 +362,110 @@ export default function ProjectDetails() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {project.items.map((item, index) => (
+            {project.items.map((item, index) => {
+              const isEditing = editingItemId === item.id;
+              
+              return (
               <div key={item.id} className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-gray-50 transition-colors">
-                <div>
+                <div className="flex-1 w-full sm:w-auto">
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-sm font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded">#{index + 1}</span>
-                    <h3 className="font-semibold text-lg text-gray-900">{item.name}</h3>
+                    {isEditing ? (
+                      <input 
+                        type="text" 
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="font-semibold text-lg text-gray-900 border border-gray-300 rounded px-2 py-1 flex-1 min-w-[200px]"
+                        autoFocus
+                      />
+                    ) : (
+                      <h3 className="font-semibold text-lg text-gray-900">{item.name}</h3>
+                    )}
                   </div>
                   <p className="text-sm text-gray-500 capitalize">{item.productType.replace(/-/g, ' ')}</p>
                 </div>
-                <div className="flex items-center gap-6 w-full sm:w-auto justify-between sm:justify-end">
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500 mb-0.5">Total Cost</p>
-                    <p className="font-bold text-gray-900">Rs. {item.costSummary.totalCost?.toLocaleString()}</p>
+                
+                <div className="flex items-center gap-4 sm:gap-6 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-gray-500">Qty:</p>
+                    {isEditing ? (
+                      <input 
+                        type="number" 
+                        min="1"
+                        value={editQty}
+                        onChange={(e) => setEditQty(parseInt(e.target.value) || 1)}
+                        className="w-16 border border-gray-300 rounded px-2 py-1 text-center font-medium"
+                      />
+                    ) : (
+                      <p className="font-medium bg-gray-100 px-2 py-0.5 rounded text-gray-700">{item.quantity || 1}</p>
+                    )}
                   </div>
-                  <button
-                    onClick={() => handleDownloadItemBOM(item)}
-                    className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                    title="Download Item BOM"
-                  >
-                    <Download className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => deleteItemFromProject(project.id, item.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Delete Item"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                  <Link 
-                    to={`/project/${project.id}/calculator/${item.productType}?edit=${item.id}`}
-                    className="text-sm text-indigo-600 font-medium hover:underline"
-                  >
-                    Edit
-                  </Link>
+                  
+                  <div className="text-right min-w-[100px]">
+                    <p className="text-xs text-gray-500 mb-0.5">Total Cost</p>
+                    <p className="font-bold text-gray-900">Rs. {((item.costSummary.totalCost || 0) * (item.quantity || 1)).toLocaleString()}</p>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {isEditing ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            updateItemInProject(project.id, item.id, { ...item, name: editName, quantity: editQty });
+                            setEditingItemId(null);
+                          }}
+                          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Save"
+                        >
+                          <Check className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => setEditingItemId(null)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Cancel"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditName(item.name);
+                            setEditQty(item.quantity || 1);
+                            setEditingItemId(item.id);
+                          }}
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Rename / Change Qty"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDownloadItemBOM(item)}
+                          className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="Download Item BOM"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteItemFromProject(project.id, item.id)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete Item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <Link 
+                          to={`/project/${project.id}/calculator/${item.productType}?edit=${item.id}`}
+                          className="text-sm text-indigo-600 font-medium hover:underline ml-2"
+                        >
+                          Edit Config
+                        </Link>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
       </div>

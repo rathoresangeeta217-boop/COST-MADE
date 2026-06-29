@@ -6,6 +6,7 @@ export interface ProjectItem {
   id: string;
   productType: 'pedestal' | 'workstation' | 'l-shape-table' | 'custom-storage';
   name: string;
+  quantity?: number;
   config: any; // Raw configuration state
   costSummary: any; // Calculated details including boardPiecesDetails, hardware, totalCost, etc.
 }
