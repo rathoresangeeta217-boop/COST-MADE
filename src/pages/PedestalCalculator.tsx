@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import { useProjectStore } from "../store/useProjectStore";
 import {
   Calculator,
   LayoutGrid,
@@ -375,7 +377,7 @@ export function calculatePedestalCost({
 
   const boardPiecesDetails = pieces.map((p) => {
     const areaSqMm = p.w * p.l * p.qty;
-    const areaSqFt = areaSqMm / 92903.04;
+    const areaSqFt = areaSqMm / 90000;
     const wasteSqFt = areaSqFt * 0.15;
     const totalAreaSqFt = areaSqFt + wasteSqFt;
 
@@ -416,7 +418,7 @@ export function calculatePedestalCost({
 
   pieces.forEach((p) => {
     if (p.ebMm && p.ebMm > 0) {
-      const ebMeter = p.ebMm / 1000;
+      const ebMeter = (p.ebMm / 1000) * 1.2;
       const pieceEbCost = ebMeter * 13;
       hCost += pieceEbCost;
       totalEbCost += pieceEbCost;
@@ -430,16 +432,6 @@ export function calculatePedestalCost({
       });
     }
   });
-
-  if (totalEbCost > 0) {
-    hardwareDetails.push({
-      label: `Total Edge Banding`,
-      qty: Number(totalEbMeter.toFixed(2)),
-      unitPrice: 13,
-      unitLabel: "m",
-      cost: totalEbCost,
-    });
-  }
 
   if (numDrawers > 0) {
     const cCost = numDrawers * HARDWARE_CHANNEL_COST;
@@ -572,6 +564,12 @@ export function calculatePedestalCost({
   };
 }
 export default function PedestalCalculator() {
+  const { projectId } = useParams();
+  const [searchParams] = useSearchParams();
+  const editItemId = searchParams.get("edit");
+  const navigate = useNavigate();
+  const { projects, addItemToProject, updateItemInProject } = useProjectStore();
+  
   const [isCustomSize, setIsCustomSize] = useState<boolean>(false);
   const [height, setHeight] = useState<number>(650); // mm
   const [width, setWidth] = useState<number>(400); // mm
@@ -594,6 +592,34 @@ export default function PedestalCalculator() {
 
   const [innerMica, setInnerMica] = useState<string>("none");
   const [outerMica, setOuterMica] = useState<string>("none");
+
+  useEffect(() => {
+    if (editItemId && projectId) {
+      const project = projects.find(p => p.id === projectId);
+      const item = project?.items.find(i => i.id === editItemId);
+      if (item && item.config) {
+        const c = item.config;
+        if (c.isCustomSize !== undefined) setIsCustomSize(c.isCustomSize);
+        if (c.height !== undefined) setHeight(c.height);
+        if (c.width !== undefined) setWidth(c.width);
+        if (c.depth !== undefined) setDepth(c.depth);
+        if (c.typeId !== undefined) setTypeId(c.typeId);
+        if (c.boardId !== undefined) setBoardId(c.boardId);
+        if (c.boardThickness !== undefined) setBoardThickness(c.boardThickness);
+        if (c.drawerLockType !== undefined) setDrawerLockType(c.drawerLockType);
+        if (c.includeHandles !== undefined) setIncludeHandles(c.includeHandles);
+        if (c.includeShutterLocks !== undefined) setIncludeShutterLocks(c.includeShutterLocks);
+        if (c.includeShutterHandles !== undefined) setIncludeShutterHandles(c.includeShutterHandles);
+        if (c.includeCastors !== undefined) setIncludeCastors(c.includeCastors);
+        if (c.wideStyle !== undefined) setWideStyle(c.wideStyle);
+        if (c.wideInternalConfig !== undefined) setWideInternalConfig(c.wideInternalConfig);
+        if (c.numShelves !== undefined) setNumShelves(c.numShelves);
+        if (c.quality !== undefined) setQuality(c.quality);
+        if (c.innerMica !== undefined) setInnerMica(c.innerMica);
+        if (c.outerMica !== undefined) setOuterMica(c.outerMica);
+      }
+    }
+  }, [editItemId, projectId, projects]);
 
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [exportMaterial, setExportMaterial] = useState<string>("all");
@@ -924,8 +950,8 @@ export default function PedestalCalculator() {
       ["Metric", "Formula Used", "Description"],
       [
         "Area (sq.ft)",
-        "(Width (mm) × Length (mm)) / 92903.04",
-        "1 sq.ft = 92903.04 sq.mm. Panel dimensions are multiplied to get sq.mm, then divided by 92903.04.",
+        "(Width (mm) × Length (mm)) / 90000",
+        "1 sq.ft = 90000 sq.mm. Panel dimensions are multiplied to get sq.mm, then divided by 90000.",
       ],
       [
         "Edge Banding",
@@ -1665,6 +1691,40 @@ export default function PedestalCalculator() {
               </p>
 
               <div className="flex flex-col gap-3">
+                {projectId ? (
+                  <button
+                    onClick={() => {
+                      const itemName = `Pedestal ${width}x${height}x${depth} (${boardId})`;
+                      const itemData = {
+                        productType: 'pedestal' as const,
+                        name: itemName,
+                        config: {
+                          isCustomSize, height, width, depth, typeId, boardId, boardThickness,
+                          drawerLockType, includeHandles, includeShutterLocks, includeShutterHandles,
+                          includeCastors, wideStyle, wideInternalConfig, numShelves, quality,
+                          innerMica, outerMica
+                        },
+                        costSummary: {
+                          totalCost,
+                          totalSqFt,
+                          boardPiecesDetails,
+                          hardwareDetails,
+                        }
+                      };
+                      if (editItemId) {
+                        updateItemInProject(projectId, editItemId, itemData);
+                        alert("Project item updated successfully!");
+                      } else {
+                        addItemToProject(projectId, itemData);
+                        alert("Added to Project successfully!");
+                      }
+                      navigate(`/project/${projectId}`);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"
+                  >
+                    {editItemId ? "Save Changes" : "Save to Project"}
+                  </button>
+                ) : null}
                 <button
                   onClick={downloadPDF}
                   className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"

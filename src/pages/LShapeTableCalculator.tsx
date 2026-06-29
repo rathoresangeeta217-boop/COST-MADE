@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import { useProjectStore } from "../store/useProjectStore";
 import {
   Calculator,
   LayoutGrid,
@@ -213,7 +215,7 @@ export function calculateLShapeCost({
     displayMaterialName = board.name;
   }
 
-  const topCost = ((mainTopAreaSqMm + returnTopAreaSqMm) / 92903.04) * topRate;
+  const topCost = ((mainTopAreaSqMm + returnTopAreaSqMm) / 90000) * topRate;
 
   const micaLabels = [];
   if (topMaterialCategory !== "marble") {
@@ -222,7 +224,7 @@ export function calculateLShapeCost({
   }
   const micaSuffix = micaLabels.length > 0 ? ` with Mica (${micaLabels.join(" + ")})` : "";
 
-  const mainTopSqFt = mainTopAreaSqMm / 92903.04;
+  const mainTopSqFt = mainTopAreaSqMm / 90000;
   const bDetails = [
     {
       label: `Main Table Top (${mainWidth}x${mainDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${mainTopSqFt.toFixed(2)} sq.ft)`,
@@ -231,7 +233,7 @@ export function calculateLShapeCost({
   ];
 
   if (includeReturnStorage) {
-    const returnTopSqFt = returnTopAreaSqMm / 92903.04;
+    const returnTopSqFt = returnTopAreaSqMm / 90000;
     bDetails.push({
       label: `Return Storage Top (${returnWidth}x${returnDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${returnTopSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(returnTopSqFt * topRate),
@@ -362,7 +364,7 @@ export function calculateLShapeCost({
     }
 
     returnCarcassAreaSqMm = bottomArea + backArea + verticalsArea + shelvesArea + shuttersArea;
-    const carcassAreaSqFt = returnCarcassAreaSqMm / 92903.04;
+    const carcassAreaSqFt = returnCarcassAreaSqMm / 90000;
     const carcassCost = carcassAreaSqFt * (board.costPerSqFt + totalMicaRate);
 
     bCostTotal += carcassCost;
@@ -420,7 +422,7 @@ export function calculateLShapeCost({
       shutterPerimetersM = 0;
     }
 
-    const totalCarcassEbM = exposedCarcassFrontM + shelfFrontM + shutterPerimetersM;
+    const totalCarcassEbM = (exposedCarcassFrontM + shelfFrontM + shutterPerimetersM) * 1.2;
     const carcassEbCost = totalCarcassEbM * 13;
 
     bCostTotal += carcassEbCost;
@@ -448,6 +450,8 @@ export function calculateLShapeCost({
       // Subtract the overlap joint length (times 2 because both edges are joined)
       topPerimeterM -= (2 * Math.min(mainDepth, returnDepth)) / 1000;
     }
+    
+    topPerimeterM *= 1.2; // 20% wastage
 
     const edgeBandingCost = topPerimeterM * edgeBandingRate;
     bCostTotal += edgeBandingCost;
@@ -489,7 +493,7 @@ export function calculateLShapeCost({
       ? Math.max(mainLegDepth, retLegDepth)
       : mainLegDepth;
     const legAreaSqMm = legCount * (effectiveDepth * height);
-    const legAreaSqFt = legAreaSqMm / 92903.04;
+    const legAreaSqFt = legAreaSqMm / 90000;
     const legsCost = legAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += legsCost;
     bDetails.push({
@@ -498,7 +502,7 @@ export function calculateLShapeCost({
     });
 
     // Edge Banding for Legs (assumes standard 18mm board for legs with 0.8mm edge banding at 13/m)
-    const legPerimeterM = (legCount * (effectiveDepth * 2 + height * 2)) / 1000;
+    const legPerimeterM = ((legCount * (effectiveDepth * 2 + height * 2)) / 1000) * 1.2;
     const legEdgeBandingCost = legPerimeterM * 13;
     bCostTotal += legEdgeBandingCost;
     bDetails.push({
@@ -600,7 +604,7 @@ export function calculateLShapeCost({
     const returnModestyWidth = includeReturnStorage ? returnWidth - 18 : 0;
     const modestyAreaSqMm =
       (mainModestyWidth + returnModestyWidth) * modestyHeight;
-    const modestyAreaSqFt = modestyAreaSqMm / 92903.04;
+    const modestyAreaSqFt = modestyAreaSqMm / 90000;
 
     if (legId === "board") {
       modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate);
@@ -613,7 +617,7 @@ export function calculateLShapeCost({
       });
 
       // Modesty Edge Banding (1 bottom edge per panel)
-      const modestyEbLengthM = (mainModestyWidth + returnModestyWidth) / 1000;
+      const modestyEbLengthM = ((mainModestyWidth + returnModestyWidth) / 1000) * 1.2;
       const modestyEbCost = modestyEbLengthM * 13;
       bCostTotal += modestyEbCost;
       bDetails.push({
@@ -698,7 +702,7 @@ export function calculateLShapeCost({
       (drawerWidth * drawerDepth)
     );
 
-    const drawerAreaSqFt = drawerAreaSqMm / 92903.04;
+    const drawerAreaSqFt = drawerAreaSqMm / 90000;
     const drawerBoardCost = drawerAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += drawerBoardCost;
     bDetails.push({
@@ -931,7 +935,7 @@ export function calculateLShapeCost({
   const carcassAreaToAdd = (includeReturnStorage && returnStorageType !== "table_only") ? returnCarcassAreaSqMm : 0;
   const calculatedSqFt =
     ((topMaterialCategory === "marble" ? 0 : (mainTopAreaSqMm + returnTopAreaSqMm)) + legsArea + modArea + drawerArea + carcassAreaToAdd) /
-    92903.04;
+    90000;
   const tSqFt = calculatedSqFt.toFixed(2);
   const waste = Math.round(bCostTotal * 0.15);
 
@@ -1556,6 +1560,12 @@ const ReturnStorage2DDrawing = ({ style }: { style: string }) => {
 };
 
 export default function LShapeTableCalculator() {
+  const { projectId } = useParams();
+  const [searchParams] = useSearchParams();
+  const editItemId = searchParams.get("edit");
+  const navigate = useNavigate();
+  const { projects, addItemToProject, updateItemInProject } = useProjectStore();
+
   const [isCustomSize, setIsCustomSize] = useState<boolean>(false);
   const [mainWidth, setMainWidth] = useState<number>(900); // mm
   const [mainDepth, setMainDepth] = useState<number>(600); // mm
@@ -1573,6 +1583,45 @@ export default function LShapeTableCalculator() {
 
   const [innerMica, setInnerMica] = useState<string>("none");
   const [outerMica, setOuterMica] = useState<string>("none");
+
+  useEffect(() => {
+    if (editItemId && projectId) {
+      const project = projects.find(p => p.id === projectId);
+      const item = project?.items.find(i => i.id === editItemId);
+      if (item && item.config) {
+        const c = item.config;
+        if (c.isCustomSize !== undefined) setIsCustomSize(c.isCustomSize);
+        if (c.mainWidth !== undefined) setMainWidth(c.mainWidth);
+        if (c.mainDepth !== undefined) setMainDepth(c.mainDepth);
+        if (c.returnWidth !== undefined) setReturnWidth(c.returnWidth);
+        if (c.returnDepth !== undefined) setReturnDepth(c.returnDepth);
+        if (c.height !== undefined) setHeight(c.height);
+        if (c.returnHeight !== undefined) setReturnHeight(c.returnHeight);
+        if (c.topThickness !== undefined) setTopThickness(c.topThickness);
+        if (c.quality !== undefined) setQuality(c.quality);
+        if (c.topMaterialCategory !== undefined) setTopMaterialCategory(c.topMaterialCategory);
+        if (c.marbleTypeId !== undefined) setMarbleTypeId(c.marbleTypeId);
+        if (c.boardId !== undefined) setBoardId(c.boardId);
+        if (c.innerMica !== undefined) setInnerMica(c.innerMica);
+        if (c.outerMica !== undefined) setOuterMica(c.outerMica);
+        if (c.legId !== undefined) setLegId(c.legId);
+        if (c.boardLegType !== undefined) setBoardLegType(c.boardLegType);
+        if (c.metalLegStyle !== undefined) setMetalLegStyle(c.metalLegStyle);
+        if (c.metalLegPipeSize !== undefined) setMetalLegPipeSize(c.metalLegPipeSize);
+        if (c.includeModesty !== undefined) setIncludeModesty(c.includeModesty);
+        if (c.modestyType !== undefined) setModestyType(c.modestyType);
+        if (c.metalModestyType !== undefined) setMetalModestyType(c.metalModestyType);
+        if (c.wireManagement !== undefined) setWireManagement(c.wireManagement);
+        if (c.includePedestal !== undefined) setIncludePedestal(c.includePedestal);
+        if (c.includeDrawer !== undefined) setIncludeDrawer(c.includeDrawer);
+        if (c.drawerCount !== undefined) setDrawerCount(c.drawerCount);
+        if (c.singleDrawerType !== undefined) setSingleDrawerType(c.singleDrawerType);
+        if (c.cpuStandType !== undefined) setCpuStandType(c.cpuStandType);
+        if (c.includeReturnStorage !== undefined) setIncludeReturnStorage(c.includeReturnStorage);
+        if (c.returnStorageType !== undefined) setReturnStorageType(c.returnStorageType);
+      }
+    }
+  }, [editItemId, projectId, projects]);
 
   useEffect(() => {
     const available = getAvailableThicknesses(boardId, quality);
@@ -2093,8 +2142,8 @@ export default function LShapeTableCalculator() {
       ["Metric", "Formula Used", "Description"],
       [
         "Area (sq.ft)",
-        "(Width (mm) × Depth (mm)) / 92903.04",
-        "1 sq.ft = 92903.04 sq.mm. Panel dimensions are multiplied to get sq.mm, then divided by 92903.04.",
+        "(Width (mm) × Depth (mm)) / 90000",
+        "1 sq.ft = 90000 sq.mm. Panel dimensions are multiplied to get sq.mm, then divided by 90000.",
       ],
       [
         "Board Cost",
@@ -3131,6 +3180,43 @@ export default function LShapeTableCalculator() {
               </p>
 
               <div className="flex flex-col gap-3">
+                {projectId ? (
+                  <button
+                    onClick={() => {
+                      const itemName = `L-Shape ${mainWidth}x${mainDepth} (${boardId})`;
+                      const itemData = {
+                        productType: 'l-shape-table' as const,
+                        name: itemName,
+                        config: {
+                          isCustomSize, mainWidth, mainDepth, returnWidth, returnDepth,
+                          height, returnHeight, topThickness, quality, topMaterialCategory,
+                          marbleTypeId, boardId, innerMica, outerMica, legId, boardLegType,
+                          metalLegStyle, metalLegPipeSize, includeModesty, modestyType,
+                          metalModestyType, wireManagement, includePedestal, includeDrawer,
+                          drawerCount, singleDrawerType, cpuStandType, includeReturnStorage,
+                          returnStorageType
+                        },
+                        costSummary: {
+                          totalCost,
+                          totalSqFt,
+                          boardDetails,
+                          hardwareDetails,
+                        }
+                      };
+                      if (editItemId) {
+                        updateItemInProject(projectId, editItemId, itemData);
+                        alert("Project item updated successfully!");
+                      } else {
+                        addItemToProject(projectId, itemData);
+                        alert("Added to Project successfully!");
+                      }
+                      navigate(`/project/${projectId}`);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"
+                  >
+                    {editItemId ? "Save Changes" : "Save to Project"}
+                  </button>
+                ) : null}
                 <button
                   onClick={downloadPDF}
                   className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"

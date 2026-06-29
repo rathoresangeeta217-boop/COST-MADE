@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import { useProjectStore } from "../store/useProjectStore";
 import {
   Calculator,
   LayoutGrid,
@@ -213,7 +215,7 @@ export function calculateWorkstationCost({
     displayMaterialName = board.name;
   }
 
-  const topCost = (topAreaSqMm / 92903.04) * topRate;
+  const topCost = (topAreaSqMm / 90000) * topRate;
 
   const micaLabels = [];
   if (topMaterialCategory !== "marble") {
@@ -224,7 +226,7 @@ export function calculateWorkstationCost({
 
   const bDetails = [
     {
-      label: `Table Top (${width}x${depth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${(topAreaSqMm / 92903.04).toFixed(2)} sq.ft)`,
+      label: `Table Top (${width}x${depth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${(topAreaSqMm / 90000).toFixed(2)} sq.ft)`,
       cost: Math.round(topCost),
     },
   ];
@@ -243,7 +245,7 @@ export function calculateWorkstationCost({
       edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
     }
 
-    const topPerimeterM = (width * 2 + depth * 2) / 1000;
+    const topPerimeterM = ((width * 2 + depth * 2) / 1000) * 1.2;
     const edgeBandingCost = topPerimeterM * edgeBandingRate;
     bCostTotal += edgeBandingCost;
     bDetails.push({
@@ -273,7 +275,7 @@ export function calculateWorkstationCost({
     }
 
     const sideLegAreaSqMm = 2 * (legDepth * height);
-    const sideLegAreaSqFt = sideLegAreaSqMm / 92903.04;
+    const sideLegAreaSqFt = sideLegAreaSqMm / 90000;
     const legsCost = sideLegAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += legsCost;
     bDetails.push({
@@ -283,7 +285,7 @@ export function calculateWorkstationCost({
 
     // Edge Banding for Legs (assumes standard 18mm board for legs with 0.8mm edge banding at 13/m)
     const legCount = 2;
-    const legPerimeterM = (legCount * (legDepth * 2 + height * 2)) / 1000;
+    const legPerimeterM = ((legCount * (legDepth * 2 + height * 2)) / 1000) * 1.2;
     const legEdgeBandingCost = legPerimeterM * 13;
     bCostTotal += legEdgeBandingCost;
     bDetails.push({
@@ -374,7 +376,7 @@ export function calculateWorkstationCost({
     }
     const modestyWidth = width - 18;
     const modestyAreaSqMm = modestyWidth * modestyHeight;
-    const modestyAreaSqFt = modestyAreaSqMm / 92903.04;
+    const modestyAreaSqFt = modestyAreaSqMm / 90000;
 
     if (legId === "board") {
       modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate);
@@ -385,7 +387,7 @@ export function calculateWorkstationCost({
       });
 
       // Modesty Edge Banding (1 bottom edge)
-      const modestyEbLengthM = modestyWidth / 1000;
+      const modestyEbLengthM = (modestyWidth / 1000) * 1.2;
       const modestyEbCost = modestyEbLengthM * 13; // Uses standard 13/m rate
       bCostTotal += modestyEbCost;
       bDetails.push({
@@ -410,7 +412,7 @@ export function calculateWorkstationCost({
   // 4. Partition Screen
   let sCost = 0;
   if (screenId !== "none") {
-    const sAreaSqFt = (width * screenHeight) / 92903.04;
+    const sAreaSqFt = (width * screenHeight) / 90000;
     if (screenId === "board") {
       sCost = sAreaSqFt * (board.costPerSqFt + totalMicaRate);
       bCostTotal += sCost;
@@ -496,7 +498,7 @@ export function calculateWorkstationCost({
       (drawerWidth * drawerDepth)
     );
 
-    const drawerAreaSqFt = drawerAreaSqMm / 92903.04;
+    const drawerAreaSqFt = drawerAreaSqMm / 90000;
     const drawerBoardCost = drawerAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += drawerBoardCost;
     bDetails.push({
@@ -629,7 +631,7 @@ export function calculateWorkstationCost({
     boardAreaSqMm += drawerAreaSqMm;
   }
 
-  const tSqFt = (boardAreaSqMm / 92903.04).toFixed(2);
+  const tSqFt = (boardAreaSqMm / 90000).toFixed(2);
   const waste = Math.round(bCostTotal * 0.15);
 
   const lCost = Math.round((bCostTotal + waste + hCost + (screenId !== "board" ? sCost : 0) + modCost) * 0.20);
@@ -669,6 +671,12 @@ export function calculateWorkstationCost({
 }
 
 export default function WorkstationCalculator() {
+  const { projectId } = useParams();
+  const [searchParams] = useSearchParams();
+  const editItemId = searchParams.get("edit");
+  const navigate = useNavigate();
+  const { projects, addItemToProject, updateItemInProject } = useProjectStore();
+
   const [isCustomSize, setIsCustomSize] = useState<boolean>(false);
   const [width, setWidth] = useState<number>(900); // mm
   const [depth, setDepth] = useState<number>(600); // mm
@@ -707,6 +715,42 @@ export default function WorkstationCalculator() {
 
   const [innerMica, setInnerMica] = useState<string>("none");
   const [outerMica, setOuterMica] = useState<string>("none");
+
+  useEffect(() => {
+    if (editItemId && projectId) {
+      const project = projects.find(p => p.id === projectId);
+      const item = project?.items.find(i => i.id === editItemId);
+      if (item && item.config) {
+        const c = item.config;
+        if (c.isCustomSize !== undefined) setIsCustomSize(c.isCustomSize);
+        if (c.width !== undefined) setWidth(c.width);
+        if (c.depth !== undefined) setDepth(c.depth);
+        if (c.height !== undefined) setHeight(c.height);
+        if (c.topThickness !== undefined) setTopThickness(c.topThickness);
+        if (c.quality !== undefined) setQuality(c.quality);
+        if (c.topMaterialCategory !== undefined) setTopMaterialCategory(c.topMaterialCategory);
+        if (c.marbleTypeId !== undefined) setMarbleTypeId(c.marbleTypeId);
+        if (c.boardId !== undefined) setBoardId(c.boardId);
+        if (c.legId !== undefined) setLegId(c.legId);
+        if (c.boardLegType !== undefined) setBoardLegType(c.boardLegType);
+        if (c.metalLegStyle !== undefined) setMetalLegStyle(c.metalLegStyle);
+        if (c.metalLegPipeSize !== undefined) setMetalLegPipeSize(c.metalLegPipeSize);
+        if (c.screenId !== undefined) setScreenId(c.screenId);
+        if (c.screenHeight !== undefined) setScreenHeight(c.screenHeight);
+        if (c.includeModesty !== undefined) setIncludeModesty(c.includeModesty);
+        if (c.modestyType !== undefined) setModestyType(c.modestyType);
+        if (c.metalModestyType !== undefined) setMetalModestyType(c.metalModestyType);
+        if (c.wireManagement !== undefined) setWireManagement(c.wireManagement);
+        if (c.includePedestal !== undefined) setIncludePedestal(c.includePedestal);
+        if (c.includeDrawer !== undefined) setIncludeDrawer(c.includeDrawer);
+        if (c.drawerCount !== undefined) setDrawerCount(c.drawerCount);
+        if (c.singleDrawerType !== undefined) setSingleDrawerType(c.singleDrawerType);
+        if (c.cpuStandType !== undefined) setCpuStandType(c.cpuStandType);
+        if (c.innerMica !== undefined) setInnerMica(c.innerMica);
+        if (c.outerMica !== undefined) setOuterMica(c.outerMica);
+      }
+    }
+  }, [editItemId, projectId, projects]);
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportIncludeModesty, setExportIncludeModesty] = useState(true);
@@ -1704,13 +1748,51 @@ export default function WorkstationCalculator() {
                 Approximation based on {totalSqFt} sq.ft board volume.
               </p>
 
-              <button
-                onClick={downloadPDF}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors mb-3"
-              >
-                <Download className="w-4 h-4" />
-                Download PDF Report
-              </button>
+              <div className="flex flex-col gap-3">
+                {projectId ? (
+                  <button
+                    onClick={() => {
+                      const itemName = `Workstation ${width}x${depth} (${boardId})`;
+                      const itemData = {
+                        productType: 'workstation' as const,
+                        name: itemName,
+                        config: {
+                          isCustomSize, width, depth, height, topThickness, quality,
+                          topMaterialCategory, marbleTypeId, boardId, legId, boardLegType,
+                          metalLegStyle, metalLegPipeSize, screenId, screenHeight,
+                          includeModesty, modestyType, metalModestyType, wireManagement,
+                          includePedestal, includeDrawer, drawerCount, singleDrawerType,
+                          cpuStandType, innerMica, outerMica
+                        },
+                        costSummary: {
+                          totalCost,
+                          totalSqFt,
+                          boardDetails,
+                          hardwareDetails,
+                        }
+                      };
+                      if (editItemId) {
+                        updateItemInProject(projectId, editItemId, itemData);
+                        alert("Project item updated successfully!");
+                      } else {
+                        addItemToProject(projectId, itemData);
+                        alert("Added to Project successfully!");
+                      }
+                      navigate(`/project/${projectId}`);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors"
+                  >
+                    {editItemId ? "Save Changes" : "Save to Project"}
+                  </button>
+                ) : null}
+                <button
+                  onClick={downloadPDF}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-lg font-medium transition-colors mb-3"
+                >
+                  <Download className="w-4 h-4" />
+                  Download PDF Report
+                </button>
+              </div>
 
               <button
                 onClick={copyImagePrompt}

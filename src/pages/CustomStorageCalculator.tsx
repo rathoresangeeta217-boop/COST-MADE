@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import { useProjectStore } from "../store/useProjectStore";
 import {
   Calculator,
   LayoutGrid,
@@ -127,6 +129,12 @@ interface ColumnConfig {
 }
 
 export default function CustomStorageCalculator() {
+  const { projectId } = useParams();
+  const [searchParams] = useSearchParams();
+  const editItemId = searchParams.get("edit");
+  const navigate = useNavigate();
+  const { projects, addItemToProject, updateItemInProject } = useProjectStore();
+
   const [activeTab, setActiveTab] = useState<"storage" | "drawer">("storage");
 
   // Dimensions and properties
@@ -155,6 +163,33 @@ export default function CustomStorageCalculator() {
     { style: "open", shelves: 1, lock: "none", handle: false },
     { style: "3_drawers", shelves: 0, lock: "central", handle: true },
   ]);
+
+  useEffect(() => {
+    if (editItemId && projectId) {
+      const project = projects.find(p => p.id === projectId);
+      const item = project?.items.find(i => i.id === editItemId);
+      if (item && item.config) {
+        const c = item.config;
+        if (c.activeTab !== undefined) setActiveTab(c.activeTab);
+        if (c.width !== undefined) setWidth(c.width);
+        if (c.depth !== undefined) setDepth(c.depth);
+        if (c.height !== undefined) setHeight(c.height);
+        if (c.drawerWidth !== undefined) setDrawerWidth(c.drawerWidth);
+        if (c.drawerDepth !== undefined) setDrawerDepth(c.drawerDepth);
+        if (c.drawerHeight !== undefined) setDrawerHeight(c.drawerHeight);
+        if (c.drawerLock !== undefined) setDrawerLock(c.drawerLock);
+        if (c.drawerHandle !== undefined) setDrawerHandle(c.drawerHandle);
+        if (c.quality !== undefined) setQuality(c.quality);
+        if (c.boardId !== undefined) setBoardId(c.boardId);
+        if (c.boardThickness !== undefined) setBoardThickness(c.boardThickness);
+        if (c.innerMica !== undefined) setInnerMica(c.innerMica);
+        if (c.outerMica !== undefined) setOuterMica(c.outerMica);
+        if (c.numBays !== undefined) setNumBays(c.numBays);
+        if (c.supportLegsCount !== undefined) setSupportLegsCount(c.supportLegsCount);
+        if (c.bays !== undefined) setBays(c.bays);
+      }
+    }
+  }, [editItemId, projectId, projects]);
 
   // Sync bays array size with numBays
   useEffect(() => {
@@ -468,7 +503,7 @@ export default function CustomStorageCalculator() {
 
     const boardDetails = pieces.map((p) => {
       const areaSqMm = p.w * p.l * p.qty;
-      const areaSqFt = areaSqMm / 92903.04;
+      const areaSqFt = areaSqMm / 90000;
       const wasteSqFt = areaSqFt * 0.15; // 15% wastage markup
       const totalSqFt = areaSqFt + wasteSqFt;
 
@@ -506,7 +541,7 @@ export default function CustomStorageCalculator() {
     pieces.forEach((p) => {
       if (p.ebMm) totalEbLengthMm += p.ebMm;
     });
-    const edgeBandingMeters = totalEbLengthMm / 1000;
+    const edgeBandingMeters = (totalEbLengthMm / 1000) * 1.2;
     const edgeBandingCost = edgeBandingMeters * 13; // Rs 13/meter
     if (edgeBandingMeters > 0) {
       hardware.push({
@@ -586,7 +621,7 @@ export default function CustomStorageCalculator() {
     if (totalGlassShuttersCount > 0) {
       const singleGlassW = bayWidth - 60; // border frame
       const singleGlassH = sideH - 60;
-      const totalGlassAreaSqFt = (singleGlassW * singleGlassH * totalGlassShuttersCount) / 92903.04;
+      const totalGlassAreaSqFt = (singleGlassW * singleGlassH * totalGlassShuttersCount) / 90000;
       const glassSurcharge = totalGlassAreaSqFt * 200; // Rs 200 per sq ft for toughened glass
       hardware.push({
         label: `Toughened Glass Panels (Visible inside frame)`,
@@ -688,7 +723,7 @@ export default function CustomStorageCalculator() {
     
     const boardDetails = pieces.map((p) => {
       const areaSqMm = p.w * p.l * p.qty;
-      const areaSqFt = areaSqMm / 92903.04;
+      const areaSqFt = areaSqMm / 90000;
       const wasteSqFt = areaSqFt * 0.15;
       const totalSqFt = areaSqFt + wasteSqFt;
 
@@ -724,7 +759,7 @@ export default function CustomStorageCalculator() {
     pieces.forEach((p) => {
       if (p.ebMm) totalEbLengthMm += p.ebMm;
     });
-    const edgeBandingMeters = totalEbLengthMm / 1000;
+    const edgeBandingMeters = (totalEbLengthMm / 1000) * 1.2;
     if (edgeBandingMeters > 0) {
       hardware.push({
         label: "PVC Edge Banding (0.8mm / 2mm)",
@@ -1012,6 +1047,41 @@ export default function CustomStorageCalculator() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {projectId ? (
+            <button
+              onClick={() => {
+                const itemName = `Storage ${width}x${depth}x${height} (${activeBoard.id})`;
+                const itemData = {
+                  productType: 'custom-storage' as const,
+                  name: itemName,
+                  config: {
+                    activeTab, width, depth, height, drawerWidth, drawerDepth,
+                    drawerHeight, drawerLock, drawerHandle, quality, boardId,
+                    boardThickness, innerMica, outerMica, numBays, supportLegsCount,
+                    bays
+                  },
+                  costSummary: {
+                    totalCost: calcData.totals.grandTotal,
+                    totalSqFt: calcData.totals.boardsSqFt,
+                    boardDetails: calcData.pieces,
+                    hardwareDetails: calcData.hardware,
+                  }
+                };
+
+                if (editItemId) {
+                  updateItemInProject(projectId, editItemId, itemData);
+                  alert("Project item updated successfully!");
+                } else {
+                  addItemToProject(projectId, itemData);
+                  alert("Added to Project successfully!");
+                }
+                navigate(`/project/${projectId}`);
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl hover:bg-indigo-100/80 transition-all shadow-sm"
+            >
+              {editItemId ? "Save Changes" : "Save to Project"}
+            </button>
+          ) : null}
           <button
             onClick={copySpecifications}
             className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
