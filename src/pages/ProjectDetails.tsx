@@ -17,6 +17,67 @@ export default function ProjectDetails() {
     );
   }
 
+  const handleDownloadItemBOM = (item: any) => {
+    const wb = XLSX.utils.book_new();
+
+    const summaryData = [
+      { "Property": "Item Name", "Value": item.name },
+      { "Property": "Product Type", "Value": item.productType },
+      { "Property": "Total Cost (Rs)", "Value": item.costSummary.totalCost }
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Summary");
+
+    const boards = item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces || [];
+    const boardData = boards.filter((b: any) => !b.label?.includes('Edge Banding')).map((b: any) => ({
+      "Description": b.label || '',
+      "Area/Qty": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)).toFixed(2)),
+      "Cost (Rs)": Number((b.cost || 0).toFixed(2))
+    }));
+    if (boardData.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(boardData), "Board Details");
+    }
+
+    const ebData = boards.filter((b: any) => b.label?.includes('Edge Banding')).map((b: any) => ({
+      "Description": b.label || '',
+      "Length (Meters)": Number((b.meters || b.qty || (b.cost / 13) || 0).toFixed(2)),
+      "Cost (Rs)": Number((b.cost || 0).toFixed(2))
+    }));
+    
+    const hw = item.costSummary.hardwareDetails || item.costSummary.hardware || [];
+    hw.filter((h: any) => h.label?.includes('Edge Banding')).forEach((h: any) => {
+      ebData.push({
+        "Description": h.label || '',
+        "Length (Meters)": Number((h.qty || 0).toFixed(2)),
+        "Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+      });
+    });
+    if (ebData.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ebData), "Edge Banding");
+    }
+
+    const hwData = hw.filter((h: any) => !h.label?.includes('Edge Banding')).map((h: any) => ({
+      "Description": h.label || '',
+      "Quantity": h.qty,
+      "Unit": h.unitLabel || h.unit || 'pcs',
+      "Unit Price (Rs)": h.unitPrice || h.rate || 0,
+      "Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+    }));
+    if (hwData.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hwData), "Hardware Details");
+    }
+
+    const labor = item.costSummary.laborDetails || [];
+    const laborData = labor.map((l: any) => ({
+      "Description": l.label || '',
+      "Cost (Rs)": Number((l.cost || 0).toFixed(2))
+    }));
+    if (laborData.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laborData), "Labor Details");
+    }
+
+    XLSX.writeFile(wb, `${item.name.replace(/[^a-zA-Z0-9]/g, '_')}_BOM.xlsx`);
+  };
+
   const handleDownloadBOM = () => {
     const wb = XLSX.utils.book_new();
 
@@ -170,6 +231,81 @@ export default function ProjectDetails() {
         XLSX.utils.book_append_sheet(wb, wsHW, "Hardware Requirements");
     }
 
+    // Append individual item sheets
+    project.items.forEach((item, index) => {
+      const itemData: any[] = [];
+      itemData.push({ "Description": "--- Item Details ---", "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+      itemData.push({ "Description": `Name: ${item.name}`, "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": item.costSummary.totalCost });
+      itemData.push({ "Description": `Product Type: ${item.productType}`, "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+      
+      const boards = item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces || [];
+      const itemBoards = boards.filter((b: any) => !b.label?.includes('Edge Banding'));
+      if (itemBoards.length > 0) {
+        itemData.push({ "Description": "--- Boards ---", "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+        itemBoards.forEach((b: any) => {
+          itemData.push({
+            "Description": b.label || '',
+            "Quantity/Area/Length": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)).toFixed(2)) + ' sq.ft',
+            "Unit Price (Rs)": "",
+            "Total Cost (Rs)": Number((b.cost || 0).toFixed(2))
+          });
+        });
+      }
+
+      const itemEB = boards.filter((b: any) => b.label?.includes('Edge Banding')).map((b: any) => ({
+        "Description": b.label || '',
+        "Quantity/Area/Length": Number((b.meters || b.qty || (b.cost / 13) || 0).toFixed(2)) + ' m',
+        "Unit Price (Rs)": "",
+        "Total Cost (Rs)": Number((b.cost || 0).toFixed(2))
+      }));
+      const hw = item.costSummary.hardwareDetails || item.costSummary.hardware || [];
+      hw.filter((h: any) => h.label?.includes('Edge Banding')).forEach((h: any) => {
+        itemEB.push({
+          "Description": h.label || '',
+          "Quantity/Area/Length": Number((h.qty || 0).toFixed(2)) + ' m',
+          "Unit Price (Rs)": h.unitPrice || h.rate || 0,
+          "Total Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+        });
+      });
+      if (itemEB.length > 0) {
+        itemData.push({ "Description": "--- Edge Banding ---", "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+        itemData.push(...itemEB);
+      }
+
+      const itemHW = hw.filter((h: any) => !h.label?.includes('Edge Banding'));
+      if (itemHW.length > 0) {
+        itemData.push({ "Description": "--- Hardware ---", "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+        itemHW.forEach((h: any) => {
+          itemData.push({
+            "Description": h.label || '',
+            "Quantity/Area/Length": `${h.qty} ${h.unitLabel || h.unit || 'pcs'}`,
+            "Unit Price (Rs)": h.unitPrice || h.rate || 0,
+            "Total Cost (Rs)": Number((h.cost || (h.qty * (h.unitPrice || h.rate || 0))).toFixed(2))
+          });
+        });
+      }
+      
+      const itemLabor = item.costSummary.laborDetails || [];
+      if (itemLabor.length > 0) {
+        itemData.push({ "Description": "--- Labor ---", "Quantity/Area/Length": "", "Unit Price (Rs)": "", "Total Cost (Rs)": "" });
+        itemLabor.forEach((l: any) => {
+          itemData.push({
+            "Description": l.label || '',
+            "Quantity/Area/Length": "",
+            "Unit Price (Rs)": "",
+            "Total Cost (Rs)": Number((l.cost || 0).toFixed(2))
+          });
+        });
+      }
+
+      let sheetName = `${index + 1}. ${item.name.substring(0, 20)}`;
+      // Ensure unique valid sheet name
+      sheetName = sheetName.replace(/[\\/?*\[\]]/g, '').substring(0, 31);
+      
+      const wsItem = XLSX.utils.json_to_sheet(itemData);
+      XLSX.utils.book_append_sheet(wb, wsItem, sheetName);
+    });
+
     XLSX.writeFile(wb, `${project.name.replace(/\s+/g, '_')}_BOM.xlsx`);
   };
 
@@ -229,6 +365,13 @@ export default function ProjectDetails() {
                     <p className="text-xs text-gray-500 mb-0.5">Total Cost</p>
                     <p className="font-bold text-gray-900">Rs. {item.costSummary.totalCost?.toLocaleString()}</p>
                   </div>
+                  <button
+                    onClick={() => handleDownloadItemBOM(item)}
+                    className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                    title="Download Item BOM"
+                  >
+                    <Download className="w-5 h-5" />
+                  </button>
                   <button
                     onClick={() => deleteItemFromProject(project.id, item.id)}
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
