@@ -1,7 +1,10 @@
 import { Link, Outlet } from 'react-router-dom';
 import { Pickaxe, Home } from 'lucide-react';
+import { useFirestoreSync } from '../lib/useFirestoreSync';
 
 export default function Layout() {
+  useFirestoreSync();
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -12,7 +15,7 @@ export default function Layout() {
             </div>
             <span className="font-semibold text-lg tracking-tight">Cost Calculator</span>
           </Link>
-          <nav>
+          <nav className="flex items-center gap-6">
             <Link
               to="/"
               className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
