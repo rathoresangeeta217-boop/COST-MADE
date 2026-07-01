@@ -29,6 +29,7 @@ export const getBoards = (quality: string) => [
     name: "PLY LAMINATE",
     costPerSqFt: quality === "affordable" ? 55 : 130,
   },
+  { id: "hdhmr_laminate", name: "HDHMR LAMINATE", costPerSqFt: 130 },
   {
     id: "ply_century_one_mm_laminate",
     name: "PLY CENTURY ONE MM LAMINATE",
@@ -63,7 +64,6 @@ export const getAvailableThicknesses = (
       case "mdf":
         return [18, 25, 36];
       case "ply_century_one_mm_laminate":
-      case "ply_laminate":
         return [18, 25];
       default:
         return [18];

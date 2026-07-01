@@ -132,13 +132,16 @@ const LEGS = [
 
 const SCREENS = [
   { id: "none", name: "None", costPerSqFt: 0 },
-  { id: "board", name: "Board Partition", costPerSqFt: 0 }, // Cost derived from board material
-  { id: "fabric", name: "Fabric Pinboard", costPerSqFt: 150 },
-  { id: "glass", name: "Toughened Glass", costPerSqFt: 200 },
+  { id: "board", name: "Wooden Partition", costPerSqFt: 0 }, // Cost derived from board material
+  { id: "acrylic", name: "Acrylic Sheet", costPerSqFt: 180 },
+  { id: "aluminium", name: "Aluminium Framing", costPerSqFt: 300 },
+  { id: "pinup", name: "Pin Up Board", costPerSqFt: 150 },
+  { id: "magnetic_glass", name: "Magnetic Glass", costPerSqFt: 450 },
 ];
 
 const WIRE_MANAGER_COST = 450; // Aluminum flap box
 const GROMMET_COST = 100; // PVC grommet
+const METAL_RACEWAY_COST = 600; // Metal Wire Raceway Tray
 const BRACKET_COST = 80; // Cost per screen bracket
 
 const LABOR_COST = 200; // Making charges
@@ -163,8 +166,8 @@ export const MARBLE_TYPES = [
 ];
 
 export function calculateWorkstationCost({
-  width,
-  depth,
+  width, // now represents width per person
+  depth, // now represents depth per person
   height,
   topThickness,
   boardId,
@@ -174,9 +177,12 @@ export function calculateWorkstationCost({
   metalLegPipeSize,
   screenId,
   screenHeight,
+  sideScreenId = "none",
+  sideScreenHeight = 300,
+  sideScreenCoverage = "full",
   includeModesty,
   modestyType = "standard",
-  metalModestyType = "plain",
+  cncDesignOnModesty = false,
   wireManagement,
   includePedestal,
   includeDrawer = false,
@@ -188,6 +194,8 @@ export function calculateWorkstationCost({
   outerMica = "none",
   topMaterialCategory = "wood",
   marbleTypeId = "onyx",
+  numPersons = 1,
+  layout = "linear",
 }: any) {
   const boards = getBoards(quality);
   const board = boards.find((b) => b.id === boardId)!;
@@ -198,8 +206,13 @@ export function calculateWorkstationCost({
   const outerRate = outerMica === "0.8" ? 35 : outerMica === "1.0" ? 56 : 0;
   const totalMicaRate = innerRate + outerRate;
 
-  // 1. Table Top Area
-  const topAreaSqMm = width * depth;
+  // Workstation Layout Math
+  const rows = layout === "back_to_back" ? 2 : 1;
+  const cols = Math.ceil(numPersons / rows);
+  const actualPersons = numPersons; // Use this for per-person accessories
+
+  // 1. Table Top Area (Total for all persons)
+  const topAreaSqMm = width * depth * actualPersons;
   let topRate = 0;
   let displayThickness = topThickness;
   let displayMaterialName = "";
@@ -226,7 +239,7 @@ export function calculateWorkstationCost({
 
   const bDetails = [
     {
-      label: `Table Top (${width}x${depth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${(topAreaSqMm / 90000).toFixed(2)} sq.ft)`,
+      label: `Table Top (${width}x${depth}x${displayThickness}mm) x ${actualPersons} - ${displayMaterialName}${micaSuffix} (${(topAreaSqMm / 90000).toFixed(2)} sq.ft)`,
       cost: Math.round(topCost),
     },
   ];
@@ -245,7 +258,8 @@ export function calculateWorkstationCost({
       edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
     }
 
-    const topPerimeterM = ((width * 2 + depth * 2) / 1000) * 1.2;
+    const topPerimeterMPerPerson = ((width * 2 + depth * 2) / 1000) * 1.2;
+    const topPerimeterM = topPerimeterMPerPerson * actualPersons;
     const edgeBandingCost = topPerimeterM * edgeBandingRate;
     bCostTotal += edgeBandingCost;
     bDetails.push({
@@ -264,28 +278,30 @@ export function calculateWorkstationCost({
     unitLabel: string;
   }[] = [];
 
+  const legFrames = cols + 1; // Number of vertical supports
+  const clusterDepth = depth * rows;
+
   if (legId === "board") {
-    // 2 wooden side legs (gable ends)
-    let legDepth = depth;
+    // wooden side legs (gable ends)
+    let legDepth = clusterDepth;
     if (boardLegType === "shorter") {
-      if (depth === 600) legDepth = 400;
-      else if (depth === 750) legDepth = 450;
-      else if (depth === 900) legDepth = 600;
-      else legDepth = Math.max(400, depth - 200);
+      if (clusterDepth === 600) legDepth = 400;
+      else if (clusterDepth === 750) legDepth = 450;
+      else if (clusterDepth === 900) legDepth = 600;
+      else legDepth = Math.max(400, clusterDepth - 200);
     }
 
-    const sideLegAreaSqMm = 2 * (legDepth * height);
+    const sideLegAreaSqMm = legFrames * (legDepth * height);
     const sideLegAreaSqFt = sideLegAreaSqMm / 90000;
     const legsCost = sideLegAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += legsCost;
     bDetails.push({
-      label: `Board Side Legs (x2) - ${legDepth}D${micaSuffix} (${sideLegAreaSqFt.toFixed(2)} sq.ft)`,
+      label: `Board Side Legs (x${legFrames}) - ${legDepth}D${micaSuffix} (${sideLegAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(legsCost),
     });
 
-    // Edge Banding for Legs (assumes standard 18mm board for legs with 0.8mm edge banding at 13/m)
-    const legCount = 2;
-    const legPerimeterM = ((legCount * (legDepth * 2 + height * 2)) / 1000) * 1.2;
+    // Edge Banding for Legs 
+    const legPerimeterM = ((legFrames * (legDepth * 2 + height * 2)) / 1000) * 1.2;
     const legEdgeBandingCost = legPerimeterM * 13;
     bCostTotal += legEdgeBandingCost;
     bDetails.push({
@@ -293,27 +309,27 @@ export function calculateWorkstationCost({
       cost: Math.round(legEdgeBandingCost),
     });
   } else if (legId === "metal_leg") {
-    // Pipe for vertical legs
-    let verticalLengthMm = 4 * height;
+    // Pipe for vertical legs (assume 2 verticals per frame)
+    let verticalLengthMm = legFrames * 2 * height;
     if (metalLegStyle === "u_shape") {
-      verticalLengthMm += 2 * depth; // u-shape has bottom loops
+      verticalLengthMm += legFrames * clusterDepth; // u-shape has bottom loops
     }
     const verticalFeet = verticalLengthMm / 304.8;
     const verticalRate = metalLegPipeSize === "50x50" ? 35 : 27;
     const costVerticals = verticalFeet * verticalRate;
 
     // 40x20 Pipe for horizontal supports
-    const horizontalWidthMm = Math.max(0, width - 140);
-    const horizontalDepthMm = Math.max(0, depth - 180);
-    const horizontalLengthMm = 2 * horizontalWidthMm + 2 * horizontalDepthMm;
+    const horizontalWidthMm = (width - 140) * cols; // along the width
+    const horizontalDepthMm = Math.max(0, clusterDepth - 180) * legFrames; // front-to-back members
+    const horizontalLengthMm = 2 * horizontalWidthMm + horizontalDepthMm;
     const horizontalFeet = horizontalLengthMm / 304.8;
 
-    const cost40x20 = horizontalFeet * 19.6; // 7kg * 56 Rs/kg / 20ft pipe = 19.6 Rs/rft
+    const cost40x20 = horizontalFeet * 19.6; 
 
     const totalFeet = verticalFeet + horizontalFeet;
     const powderCoatingCost = totalFeet * 30;
 
-    const numLegs = 4;
+    const numLegs = legFrames * 2;
     const bufferCost = numLegs * 7;
     const nutCost = numLegs * 5;
     const butterflyCost = numLegs * 2 * 12.5;
@@ -345,18 +361,17 @@ export function calculateWorkstationCost({
     hDetails.push({
       label: "Leg Accessories (Buffer, Nut, Butterfly)",
       qty: numLegs,
-      unitPrice: 37, // 7 + 5 + (2 * 12.5)
+      unitPrice: 37, 
       unitLabel: "leg set",
       cost: Math.round(accessoriesCost),
     });
   } else {
-    // Other Metal legs
-    const legCount = 2;
-    const legTotalCost = legCount * legType.cost;
+    // Other Metal legs (e.g. Loop, C-Legs)
+    const legTotalCost = legFrames * legType.cost;
     hCost += legTotalCost;
     hDetails.push({
       label: legType.name,
-      qty: legCount,
+      qty: legFrames,
       unitPrice: legType.cost,
       unitLabel: "pcs",
       cost: legTotalCost,
@@ -370,25 +385,37 @@ export function calculateWorkstationCost({
     if (legId === "board") {
       if (modestyType === "short") modestyHeight = 600;
       else if (modestyType === "shorter") modestyHeight = 300;
-      else modestyHeight = 715; // standard
+      else modestyHeight = 715; 
     } else {
-      modestyHeight = 450; // Typically metal frame modesty panels are shorter, let's assume 450mm
+      modestyHeight = 450; 
     }
     const modestyWidth = width - 18;
-    const modestyAreaSqMm = modestyWidth * modestyHeight;
+    const modestyAreaSqMm = modestyWidth * modestyHeight * actualPersons;
     const modestyAreaSqFt = modestyAreaSqMm / 90000;
 
     if (legId === "board") {
       modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate);
       bCostTotal += modCost;
       bDetails.push({
-        label: `Modesty Panel (${modestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
+        label: `Modesty Panel x${actualPersons} (${modestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
         cost: Math.round(modCost),
       });
 
-      // Modesty Edge Banding (1 bottom edge)
-      const modestyEbLengthM = (modestyWidth / 1000) * 1.2;
-      const modestyEbCost = modestyEbLengthM * 13; // Uses standard 13/m rate
+      if (cncDesignOnModesty) {
+        const cncCost = modestyAreaSqFt * 150; // Example CNC routing charge for boards
+        hCost += cncCost;
+        hDetails.push({
+          label: `CNC Design Pattern (Board Modesty)`,
+          qty: Number(modestyAreaSqFt.toFixed(2)),
+          unitPrice: 150,
+          unitLabel: "sqft",
+          cost: Math.round(cncCost),
+        });
+      }
+
+      // Modesty Edge Banding
+      const modestyEbLengthM = (modestyWidth / 1000) * 1.2 * actualPersons;
+      const modestyEbCost = modestyEbLengthM * 13; 
       bCostTotal += modestyEbCost;
       bDetails.push({
         label: `Modesty Edge Banding (0.8mm, ${modestyEbLengthM.toFixed(3)}m)`,
@@ -396,11 +423,11 @@ export function calculateWorkstationCost({
       });
     } else {
       // Metal Leg Modesty
-      const metalModestyRateSqFt = metalModestyType === "cnc" ? 163 : 100;
+      const metalModestyRateSqFt = cncDesignOnModesty ? 163 : 100;
       modCost = modestyAreaSqFt * metalModestyRateSqFt;
       hCost += modCost;
       hDetails.push({
-        label: `Metal Modesty Panel (${metalModestyType === "cnc" ? "CNC Design" : "Plain"})`,
+        label: `Metal Modesty Panel (${cncDesignOnModesty ? "CNC Design" : "Plain"})`,
         qty: Number(modestyAreaSqFt.toFixed(2)),
         unitPrice: metalModestyRateSqFt,
         unitLabel: "sqft",
@@ -412,17 +439,19 @@ export function calculateWorkstationCost({
   // 4. Partition Screen
   let sCost = 0;
   if (screenId !== "none") {
-    const sAreaSqFt = (width * screenHeight) / 90000;
+    // One screen per column
+    const screenCount = cols;
+    const sAreaSqFt = (width * screenHeight * screenCount) / 90000;
     if (screenId === "board") {
       sCost = sAreaSqFt * (board.costPerSqFt + totalMicaRate);
       bCostTotal += sCost;
-      bDetails.push({ label: `Board Partition${micaSuffix} (${sAreaSqFt.toFixed(2)} sq.ft)`, cost: Math.round(sCost) });
+      bDetails.push({ label: `Board Partition x${screenCount}${micaSuffix} (${sAreaSqFt.toFixed(2)} sq.ft)`, cost: Math.round(sCost) });
     } else {
       sCost = sAreaSqFt * screenType.costPerSqFt;
     }
 
     // Hardware for screen
-    const bracketCount = width > 1200 ? 3 : 2;
+    const bracketCount = (width > 1200 ? 3 : 2) * screenCount;
     const bracketTotal = bracketCount * BRACKET_COST;
     hCost += bracketTotal;
     hDetails.push({
@@ -434,18 +463,61 @@ export function calculateWorkstationCost({
     });
   }
 
+  // 4b. Side Partition Screen
+  let sideSCost = 0;
+  if (sideScreenId !== "none") {
+    const sideScreenType = SCREENS.find((s) => s.id === sideScreenId)!;
+    const sideScreenCount = actualPersons; // one side partition per person to create an L-shape for each, or generally between users
+    const effectiveSideDepth = sideScreenCoverage === "half" ? depth / 2 : depth;
+    const sAreaSqFtSide = (effectiveSideDepth * sideScreenHeight * sideScreenCount) / 90000;
+
+    if (sideScreenId === "board") {
+      sideSCost = sAreaSqFtSide * (board.costPerSqFt + totalMicaRate);
+      bCostTotal += sideSCost;
+      bDetails.push({ label: `Side Board Partition x${sideScreenCount}${micaSuffix} (${sAreaSqFtSide.toFixed(2)} sq.ft)`, cost: Math.round(sideSCost) });
+    } else {
+      sideSCost = sAreaSqFtSide * sideScreenType.costPerSqFt;
+    }
+
+    // Hardware for side screen
+    const sideBracketCount = (depth > 600 ? 3 : 2) * sideScreenCount;
+    const sideBracketTotal = sideBracketCount * BRACKET_COST;
+    hCost += sideBracketTotal;
+    hDetails.push({
+      label: "Side Screen Brackets",
+      qty: sideBracketCount,
+      unitPrice: BRACKET_COST,
+      unitLabel: "pcs",
+      cost: sideBracketTotal,
+    });
+    
+    // add to total screen cost
+    sCost += sideSCost;
+  }
+
   // 5. Wire Management
   if (wireManagement === "raceway") {
-    hCost += WIRE_MANAGER_COST;
+    const cost = WIRE_MANAGER_COST * actualPersons;
+    hCost += cost;
     hDetails.push({
       label: "Alu Flap Raceway",
-      qty: 1,
+      qty: actualPersons,
       unitPrice: WIRE_MANAGER_COST,
       unitLabel: "Set",
-      cost: WIRE_MANAGER_COST,
+      cost: cost,
+    });
+  } else if (wireManagement === "wire_raceway") {
+    const cost = METAL_RACEWAY_COST * actualPersons;
+    hCost += cost;
+    hDetails.push({
+      label: "Metal Wire Raceway Tray",
+      qty: actualPersons,
+      unitPrice: METAL_RACEWAY_COST,
+      unitLabel: "Set",
+      cost: cost,
     });
   } else if (wireManagement === "grommet") {
-    const grommetCount = 2;
+    const grommetCount = 2 * actualPersons;
     const gCost = grommetCount * GROMMET_COST;
     hCost += gCost;
     hDetails.push({
@@ -458,16 +530,16 @@ export function calculateWorkstationCost({
   }
 
   // 6. Fixed Pedestal (Standard approx material + hardware)
-  // Here we just add a flat estimated rate for a pedestal if selected.
   if (includePedestal) {
     const pedEstimatedCost = 3500;
-    hCost += pedEstimatedCost;
+    const cost = pedEstimatedCost * actualPersons;
+    hCost += cost;
     hDetails.push({
       label: "3-Drawer Pedestal (Fixed)",
-      qty: 1,
+      qty: actualPersons,
       unitPrice: pedEstimatedCost,
       unitLabel: "unit",
-      cost: pedEstimatedCost,
+      cost: cost,
     });
   }
 
@@ -491,8 +563,10 @@ export function calculateWorkstationCost({
       }
     }
 
+    const totalDrawers = drawerCount * actualPersons;
+
     // Front/Back + Sides + Bottom approx
-    const drawerAreaSqMm = drawerCount * (
+    const drawerAreaSqMm = totalDrawers * (
       (drawerWidth * drawerHeight * 2) +
       (drawerDepth * drawerHeight * 2) +
       (drawerWidth * drawerDepth)
@@ -502,32 +576,32 @@ export function calculateWorkstationCost({
     const drawerBoardCost = drawerAreaSqFt * (board.costPerSqFt + totalMicaRate);
     bCostTotal += drawerBoardCost;
     bDetails.push({
-      label: `Drawers (${drawerCount}x) Board${micaSuffix} (${drawerAreaSqFt.toFixed(2)} sq.ft)`,
+      label: `Drawers (${totalDrawers}x) Board${micaSuffix} (${drawerAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(drawerBoardCost),
     });
 
-    const channelCost = drawerCount * HARDWARE_CHANNEL_COST;
-    const handleCost = drawerCount * HARDWARE_HANDLE_COST;
-    const lockCost = drawerCount * HARDWARE_LOCK_COST;
+    const channelCost = totalDrawers * HARDWARE_CHANNEL_COST;
+    const handleCost = totalDrawers * HARDWARE_HANDLE_COST;
+    const lockCost = totalDrawers * HARDWARE_LOCK_COST;
 
     hCost += channelCost + handleCost + lockCost;
     hDetails.push({
       label: "Drawer Channels",
-      qty: drawerCount,
+      qty: totalDrawers,
       unitPrice: HARDWARE_CHANNEL_COST,
       unitLabel: "pair",
       cost: channelCost,
     });
     hDetails.push({
       label: "Drawer Handles",
-      qty: drawerCount,
+      qty: totalDrawers,
       unitPrice: HARDWARE_HANDLE_COST,
       unitLabel: "pcs",
       cost: handleCost,
     });
     hDetails.push({
       label: "Drawer Locks",
-      qty: drawerCount,
+      qty: totalDrawers,
       unitPrice: HARDWARE_LOCK_COST,
       unitLabel: "pcs",
       cost: lockCost,
@@ -536,42 +610,46 @@ export function calculateWorkstationCost({
 
   // 8. CPU Stand (Optional)
   if (cpuStandType === "trolley") {
-    hCost += CPU_TROLLEY_COST;
+    const cost = CPU_TROLLEY_COST * actualPersons;
+    hCost += cost;
     hDetails.push({
       label: "CPU Trolley",
-      qty: 1,
+      qty: actualPersons,
       unitPrice: CPU_TROLLEY_COST,
       unitLabel: "unit",
-      cost: CPU_TROLLEY_COST,
+      cost: cost,
     });
   } else if (cpuStandType === "mount") {
-    hCost += CPU_MOUNT_COST;
+    const cost = CPU_MOUNT_COST * actualPersons;
+    hCost += cost;
     hDetails.push({
       label: "CPU Mount Bracket",
-      qty: 1,
+      qty: actualPersons,
       unitPrice: CPU_MOUNT_COST,
       unitLabel: "unit",
-      cost: CPU_MOUNT_COST,
+      cost: cost,
     });
   }
 
   // Add Fixed Hardware (Patti & Buffer)
   if (legId !== "metal_leg") {
-    const pattiTotal = LPATTI_QTY * LPATTI_COST;
+    const pattiQty = LPATTI_QTY * legFrames; // Assume L-Pattis connect leg frames to top
+    const pattiTotal = pattiQty * LPATTI_COST;
     hCost += pattiTotal;
     hDetails.push({
       label: "L Patti",
-      qty: LPATTI_QTY,
+      qty: pattiQty,
       unitPrice: LPATTI_COST,
       unitLabel: "pcs",
       cost: pattiTotal,
     });
 
-    const bufferTotal = BUFFER_QTY * BUFFER_COST;
+    const bufferQty = BUFFER_QTY * legFrames;
+    const bufferTotal = bufferQty * BUFFER_COST;
     hCost += bufferTotal;
     hDetails.push({
       label: "Buffer",
-      qty: BUFFER_QTY,
+      qty: bufferQty,
       unitPrice: BUFFER_COST,
       unitLabel: "pcs",
       cost: bufferTotal,
@@ -581,29 +659,30 @@ export function calculateWorkstationCost({
   let boardAreaSqMm =
     (topMaterialCategory === "marble" ? 0 : topAreaSqMm) +
     (legId === "board"
-      ? 2 *
+      ? legFrames *
         (boardLegType === "shorter"
-          ? depth === 600
+          ? clusterDepth === 600
             ? 400
-            : depth === 750
+            : clusterDepth === 750
               ? 450
-              : depth === 900
+              : clusterDepth === 900
                 ? 600
-                : Math.max(400, depth - 200)
-          : depth) *
+                : Math.max(400, clusterDepth - 200)
+          : clusterDepth) *
         height
       : 0) +
     (includeModesty
-      ? (width - 18) *
+      ? (width - 18) * actualPersons *
         (legId === "board"
           ? modestyType === "short"
             ? 600
             : modestyType === "shorter"
               ? 300
               : 715
-          : 750)
+          : 450)
       : 0) +
-    (screenId === "board" ? width * screenHeight : 0);
+    (screenId === "board" ? width * screenHeight * cols : 0) +
+    (sideScreenId === "board" ? (sideScreenCoverage === "half" ? depth / 2 : depth) * sideScreenHeight * actualPersons : 0);
 
   if (includeDrawer) {
     let drawerWidth = 0;
@@ -623,7 +702,8 @@ export function calculateWorkstationCost({
         drawerWidth = (width - 36) / 2;
       }
     }
-    const drawerAreaSqMm = drawerCount * (
+    const totalDrawers = drawerCount * actualPersons;
+    const drawerAreaSqMm = totalDrawers * (
       (drawerWidth * drawerHeight * 2) +
       (drawerDepth * drawerHeight * 2) +
       (drawerWidth * drawerDepth)
@@ -635,7 +715,7 @@ export function calculateWorkstationCost({
   const waste = Math.round(bCostTotal * 0.15);
 
   const lCost = Math.round((bCostTotal + waste + hCost + (screenId !== "board" ? sCost : 0) + modCost) * 0.20);
-  const pCost = PACKING_COST;
+  const pCost = PACKING_COST * actualPersons;
 
   // Total raw + labor
   const directCost =
@@ -647,7 +727,7 @@ export function calculateWorkstationCost({
     lCost +
     pCost;
 
-  const tCost = TOOLING_COST;
+  const tCost = TOOLING_COST * actualPersons;
   const subTotal = directCost + tCost;
   const prof = Math.round(subTotal * PROFIT_PERCENTAGE);
 
@@ -681,6 +761,8 @@ export default function WorkstationCalculator() {
   const [width, setWidth] = useState<number>(900); // mm
   const [depth, setDepth] = useState<number>(600); // mm
   const [height, setHeight] = useState<number>(750); // mm
+  const [numPersons, setNumPersons] = useState<number>(1);
+  const [layout, setLayout] = useState<string>("linear"); // 'linear', 'back_to_back'
   const [topThickness, setTopThickness] = useState<number>(18); // mm
   const [quality, setQuality] = useState<string>("standard");
 
@@ -701,11 +783,13 @@ export default function WorkstationCalculator() {
   const [metalLegStyle, setMetalLegStyle] = useState<string>("straight"); // 'straight', 'u_shape'
   const [metalLegPipeSize, setMetalLegPipeSize] = useState<string>("40x40"); // '40x40', '50x50'
   const [screenId, setScreenId] = useState<string>("none");
-
   const [screenHeight, setScreenHeight] = useState<number>(300); // above desk height mm
+  const [sideScreenId, setSideScreenId] = useState<string>("none");
+  const [sideScreenHeight, setSideScreenHeight] = useState<number>(300); // above desk height mm
+  const [sideScreenCoverage, setSideScreenCoverage] = useState<string>("full"); // 'full', 'half'
   const [includeModesty, setIncludeModesty] = useState<boolean>(true);
   const [modestyType, setModestyType] = useState<string>("standard"); // 'standard', 'short', 'shorter'
-  const [metalModestyType, setMetalModestyType] = useState<string>("plain"); // 'plain', 'cnc'
+  const [cncDesignOnModesty, setCncDesignOnModesty] = useState<boolean>(false);
   const [wireManagement, setWireManagement] = useState<string>("raceway"); // 'grommet', 'raceway', 'none'
   const [includePedestal, setIncludePedestal] = useState<boolean>(false);
   const [includeDrawer, setIncludeDrawer] = useState<boolean>(false);
@@ -737,9 +821,12 @@ export default function WorkstationCalculator() {
         if (c.metalLegPipeSize !== undefined) setMetalLegPipeSize(c.metalLegPipeSize);
         if (c.screenId !== undefined) setScreenId(c.screenId);
         if (c.screenHeight !== undefined) setScreenHeight(c.screenHeight);
+        if (c.sideScreenId !== undefined) setSideScreenId(c.sideScreenId);
+        if (c.sideScreenHeight !== undefined) setSideScreenHeight(c.sideScreenHeight);
+        if (c.sideScreenCoverage !== undefined) setSideScreenCoverage(c.sideScreenCoverage);
         if (c.includeModesty !== undefined) setIncludeModesty(c.includeModesty);
         if (c.modestyType !== undefined) setModestyType(c.modestyType);
-        if (c.metalModestyType !== undefined) setMetalModestyType(c.metalModestyType);
+        if (c.cncDesignOnModesty !== undefined) setCncDesignOnModesty(c.cncDesignOnModesty);
         if (c.wireManagement !== undefined) setWireManagement(c.wireManagement);
         if (c.includePedestal !== undefined) setIncludePedestal(c.includePedestal);
         if (c.includeDrawer !== undefined) setIncludeDrawer(c.includeDrawer);
@@ -792,6 +879,8 @@ export default function WorkstationCalculator() {
       width,
       depth,
       height,
+      numPersons,
+      layout,
       topThickness,
       boardId,
       legId,
@@ -800,9 +889,12 @@ export default function WorkstationCalculator() {
       metalLegPipeSize,
       screenId,
       screenHeight,
+      sideScreenId,
+      sideScreenHeight,
+      sideScreenCoverage,
       includeModesty,
       modestyType,
-      metalModestyType,
+      cncDesignOnModesty,
       wireManagement,
       includeDrawer,
       drawerCount,
@@ -818,6 +910,8 @@ export default function WorkstationCalculator() {
     width,
     height,
     depth,
+    numPersons,
+    layout,
     topThickness,
     boardId,
     legId,
@@ -826,8 +920,12 @@ export default function WorkstationCalculator() {
     metalLegPipeSize,
     screenId,
     screenHeight,
+    sideScreenId,
+    sideScreenHeight,
+    sideScreenCoverage,
     includeModesty,
     modestyType,
+    cncDesignOnModesty,
     wireManagement,
     includeDrawer,
     drawerCount,
@@ -875,9 +973,10 @@ export default function WorkstationCalculator() {
     }
     const modestyDesc = includeModesty ? ` It includes ${modestyString}.` : " It has an open back design with no modesty panel.";
     
-    const screenDesc = screenId !== "none" ? ` It includes a ${screenHeight}mm high ${SCREENS.find(s=>s.id === screenId)?.name.toLowerCase() ?? "partition"} screen on top.` : "";
+    const screenDesc = screenId !== "none" ? ` It includes a ${screenHeight}mm high ${SCREENS.find(s=>s.id === screenId)?.name.toLowerCase() ?? "partition"} front screen on top.` : "";
+    const sideScreenDesc = sideScreenId !== "none" ? ` It includes a ${sideScreenHeight}mm high ${SCREENS.find(s=>s.id === sideScreenId)?.name.toLowerCase() ?? "partition"} side screen on top (${sideScreenCoverage === "half" ? "half depth" : "full depth"}).` : "";
     
-    const prompt = `A highly realistic, professional product photography studio shot of a modern office workstation desk. The table dimensions are ${width}mm wide, ${depth}mm deep, and ${height}mm high. The table top is made of ${topName}. The desk base uses ${legStyle}.${modestyDesc}${screenDesc}${drawerDesc}${pedestalDesc}${cpuDesc} Clean, ultra-minimalist solid white background. Studio lighting, highly detailed, 8k resolution, photorealistic furniture photography.`;
+    const prompt = `A highly realistic, professional product photography studio shot of a modern office workstation desk. The table dimensions are ${width}mm wide, ${depth}mm deep, and ${height}mm high. The table top is made of ${topName}. The desk base uses ${legStyle}.${modestyDesc}${screenDesc}${sideScreenDesc}${drawerDesc}${pedestalDesc}${cpuDesc} Clean, ultra-minimalist solid white background. Studio lighting, highly detailed, 8k resolution, photorealistic furniture photography.`;
     
     navigator.clipboard.writeText(prompt);
     setCopiedPrompt(true);
@@ -923,14 +1022,20 @@ export default function WorkstationCalculator() {
     specBody.push(
       ["Understructure Wood", board.name],
       ["Understructure", legType.name],
-      ["Modesty Panel", includeModesty ? "Included" : "None"],
+      ["Modesty Panel", includeModesty ? (cncDesignOnModesty ? "Included (CNC Design)" : "Included (Plain)") : "None"],
       [
-        "Screen Partition",
+        "Front Partition",
         screenId !== "none"
           ? `${screenType.name} (${screenHeight}mm H)`
           : "None",
       ],
-      ["Wire Management", wireManagement.toUpperCase()]
+      [
+        "Side Partition",
+        sideScreenId !== "none"
+          ? `${SCREENS.find((s) => s.id === sideScreenId)?.name} (${sideScreenHeight}mm H, ${sideScreenCoverage === "half" ? "Half Depth" : "Full Depth"})`
+          : "None",
+      ],
+      ["Wire Management", wireManagement.replace("_", " ").toUpperCase()]
     );
 
     if (includePedestal) {
@@ -1091,9 +1196,12 @@ export default function WorkstationCalculator() {
               metalLegPipeSize: "40x40",
               screenId: "none",
               screenHeight: 300,
+              sideScreenId: "none",
+              sideScreenHeight: 300,
+              sideScreenCoverage: "full",
               includeModesty: exportIncludeModesty,
               modestyType: exportModestyType,
-              metalModestyType: "plain",
+              cncDesignOnModesty: false,
               wireManagement: exportWireManagement,
               includeDrawer,
               drawerCount,
@@ -1167,10 +1275,35 @@ export default function WorkstationCalculator() {
                 Custom Sizes
               </label>
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-x-3 gap-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Width (L)
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap">
+                  Layout
+                </label>
+                <select
+                  value={layout}
+                  onChange={(e) => setLayout(e.target.value)}
+                  className="block w-full px-2 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
+                >
+                  <option value="linear">Linear</option>
+                  <option value="back_to_back">Back-to-Back</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap" title="Number of Sitting">
+                  Persons
+                </label>
+                <input
+                  type="number"
+                  value={numPersons}
+                  onChange={(e) => setNumPersons(Math.max(1, Number(e.target.value)))}
+                  min={1}
+                  className="block w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap">
+                  Width/Person
                 </label>
                 {isCustomSize ? (
                   <input
@@ -1178,13 +1311,13 @@ export default function WorkstationCalculator() {
                     value={width}
                     onChange={(e) => setWidth(Number(e.target.value))}
                     min={0}
-                    className="block w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   />
                 ) : (
                   <select
                     value={width}
                     onChange={(e) => setWidth(Number(e.target.value))}
-                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-2 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   >
                     <option value={900}>900 mm</option>
                     <option value={1050}>1050 mm</option>
@@ -1195,8 +1328,8 @@ export default function WorkstationCalculator() {
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Depth (D)
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap">
+                  Depth/Person
                 </label>
                 {isCustomSize ? (
                   <input
@@ -1204,13 +1337,13 @@ export default function WorkstationCalculator() {
                     value={depth}
                     onChange={(e) => setDepth(Number(e.target.value))}
                     min={0}
-                    className="block w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   />
                 ) : (
                   <select
                     value={depth}
                     onChange={(e) => setDepth(Number(e.target.value))}
-                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-2 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   >
                     <option value={400}>400 mm</option>
                     <option value={600}>600 mm</option>
@@ -1221,8 +1354,8 @@ export default function WorkstationCalculator() {
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Height (H)
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap">
+                  Height
                 </label>
                 {isCustomSize ? (
                   <input
@@ -1230,31 +1363,31 @@ export default function WorkstationCalculator() {
                     value={height}
                     onChange={(e) => setHeight(Number(e.target.value))}
                     min={0}
-                    className="block w-full px-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   />
                 ) : (
                   <select
                     value={height}
                     onChange={(e) => setHeight(Number(e.target.value))}
-                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-2 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   >
                     <option value={750}>750 mm</option>
                   </select>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap">
                   Top Thickness
                 </label>
                 {topMaterialCategory === "marble" ? (
-                  <div className="block w-full px-4 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-500 font-semibold select-none">
+                  <div className="block w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-500 font-semibold select-none text-sm">
                     14 mm (Onyx)
                   </div>
                 ) : (
                   <select
                     value={topThickness}
                     onChange={(e) => setTopThickness(Number(e.target.value))}
-                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900"
+                    className="block w-full px-2 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-gray-900 font-medium text-sm"
                   >
                     {getAvailableThicknesses(boardId, quality).map((t) => (
                       <option key={t} value={t}>
@@ -1452,7 +1585,7 @@ export default function WorkstationCalculator() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Partition Screen
+                  Front Partition Screen
                 </label>
                 <div className="flex gap-4 items-center">
                   <select
@@ -1482,6 +1615,46 @@ export default function WorkstationCalculator() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Side Partition Screen
+                </label>
+                <div className="flex gap-4 items-center">
+                  <select
+                    value={sideScreenId}
+                    onChange={(e) => setSideScreenId(e.target.value)}
+                    className="block w-1/2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                  >
+                    {SCREENS.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  {sideScreenId !== "none" && (
+                    <>
+                      <select
+                        value={sideScreenHeight}
+                        onChange={(e) => setSideScreenHeight(Number(e.target.value))}
+                        className="block w-1/4 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                      >
+                        <option value={300}>300 mm High</option>
+                        <option value={400}>400 mm High</option>
+                        <option value={450}>450 mm High</option>
+                      </select>
+                      <select
+                        value={sideScreenCoverage}
+                        onChange={(e) => setSideScreenCoverage(e.target.value)}
+                        className="block w-1/4 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                      >
+                        <option value="full">Full Depth</option>
+                        <option value="half">Half Depth</option>
+                      </select>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Wire Management
                 </label>
                 <select
@@ -1495,6 +1668,9 @@ export default function WorkstationCalculator() {
                   </option>
                   <option value="raceway">
                     Aluminum Flap Box (₹{WIRE_MANAGER_COST})
+                  </option>
+                  <option value="wire_raceway">
+                    Metal Wire Raceway Tray (₹{METAL_RACEWAY_COST})
                   </option>
                 </select>
               </div>
@@ -1535,16 +1711,17 @@ export default function WorkstationCalculator() {
                         </select>
                       </div>
                     )}
-                    {includeModesty && legId !== "board" && (
+                    {includeModesty && (
                       <div className="ml-8 mt-1">
-                        <select
-                          value={metalModestyType}
-                          onChange={(e) => setMetalModestyType(e.target.value)}
-                          className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                          <option value="plain">Plain Metal Sheet</option>
-                          <option value="cnc">CNC Design Panel</option>
-                        </select>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={cncDesignOnModesty}
+                            onChange={(e) => setCncDesignOnModesty(e.target.checked)}
+                            className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                          />
+                          CNC Design Panel
+                        </label>
                       </div>
                     )}
                   </div>
@@ -1760,7 +1937,8 @@ export default function WorkstationCalculator() {
                           isCustomSize, width, depth, height, topThickness, quality,
                           topMaterialCategory, marbleTypeId, boardId, legId, boardLegType,
                           metalLegStyle, metalLegPipeSize, screenId, screenHeight,
-                          includeModesty, modestyType, metalModestyType, wireManagement,
+                          sideScreenId, sideScreenHeight, sideScreenCoverage,
+                          includeModesty, modestyType, cncDesignOnModesty, wireManagement,
                           includePedestal, includeDrawer, drawerCount, singleDrawerType,
                           cpuStandType, innerMica, outerMica
                         },
@@ -1877,6 +2055,7 @@ export default function WorkstationCalculator() {
                   <option value="none">None</option>
                   <option value="grommet">PVC Grommets</option>
                   <option value="raceway">Alu Flap Raceway</option>
+                  <option value="wire_raceway">Metal Wire Raceway</option>
                 </select>
               </div>
 

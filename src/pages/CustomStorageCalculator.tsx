@@ -26,36 +26,64 @@ import * as XLSX from "xlsx";
 export const getBoards = (quality: string) => [
   { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
   { id: "mdf", name: "MDF", costPerSqFt: quality === "affordable" ? 38 : 61 },
-  { id: "hdhmr", name: "HDHMR", costPerSqFt: quality === "affordable" ? 99 : 74 },
-  { id: "ply_laminate", name: "PLY LAMINATE", costPerSqFt: quality === "affordable" ? 55 : 130 },
-  { id: "ply_century_one_mm_laminate", name: "PLY CENTURY ONE MM LAMINATE", costPerSqFt: 230 },
+  {
+    id: "hdhmr",
+    name: "HDHMR",
+    costPerSqFt: quality === "affordable" ? 99 : 74,
+  },
+  {
+    id: "ply_laminate",
+    name: "PLY LAMINATE",
+    costPerSqFt: quality === "affordable" ? 55 : 130,
+  },
+  { id: "hdhmr_laminate", name: "HDHMR LAMINATE", costPerSqFt: 130 },
+  {
+    id: "ply_century_one_mm_laminate",
+    name: "PLY CENTURY ONE MM LAMINATE",
+    costPerSqFt: 230,
+  },
 ];
 
-export const getAvailableThicknesses = (boardId: string, quality: string): number[] => {
+export const getAvailableThicknesses = (
+  boardId: string,
+  quality: string,
+): number[] => {
   if (quality === "affordable") {
     switch (boardId) {
-      case "plpb": return [11, 17, 18, 25];
-      case "mdf": return [17, 18, 25, 35];
-      case "hdhmr": return [16.75, 18, 25];
+      case "plpb":
+        return [11, 17, 18, 25];
+      case "mdf":
+        return [17, 18, 25, 35];
+      case "hdhmr":
+        return [16.75, 18, 25];
       case "ply_laminate":
       case "ply_century_one_mm_laminate":
         return [6, 9, 12, 15, 16, 18];
-      default: return [18];
+      default:
+        return [18];
     }
   } else {
     switch (boardId) {
-      case "plpb": return [18, 25, 36];
-      case "hdhmr": return [18, 25];
-      case "mdf": return [18, 25, 36];
-      case "ply_century_one_mm_laminate":
-      case "ply_laminate":
+      case "plpb":
+        return [18, 25, 36];
+      case "hdhmr":
         return [18, 25];
-      default: return [18];
+      case "mdf":
+        return [18, 25, 36];
+      case "ply_century_one_mm_laminate":
+        return [18, 25];
+      default:
+        return [18];
     }
   }
 };
 
-export const getBoardRate = (boardId: string, baseRate: number, thickness: number, quality: string): number => {
+export const getBoardRate = (
+  boardId: string,
+  baseRate: number,
+  thickness: number,
+  quality: string,
+): number => {
   if (quality === "affordable") {
     if (boardId === "plpb") {
       if (thickness === 11) return 27;
@@ -83,27 +111,19 @@ export const getBoardRate = (boardId: string, baseRate: number, thickness: numbe
       if (thickness === 35) return 112;
     }
   } else {
+    // Standard quality logic
     if (boardId === "plpb") {
       if (thickness === 18) return 49;
       if (thickness === 25) return 63;
       if (thickness === 36) return 98;
     }
     if (boardId === "hdhmr") {
-      if (thickness === 18) return 74;
       if (thickness === 25) return 108;
     }
     if (boardId === "mdf") {
       if (thickness === 18) return 61;
       if (thickness === 25) return 83;
       if (thickness === 36) return 122;
-    }
-    if (boardId === "ply_laminate") {
-      if (thickness === 18) return 130;
-      if (thickness === 25) return 181;
-    }
-    if (boardId === "ply_century_one_mm_laminate") {
-      if (thickness === 18) return 230;
-      if (thickness === 25) return 319;
     }
   }
   return baseRate * (thickness / 18);
@@ -1257,7 +1277,7 @@ export default function CustomStorageCalculator() {
                 >
                   {boards.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} (Base Rate: Rs {b.costPerSqFt}/sq.ft)
+                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)
                     </option>
                   ))}
                 </select>
