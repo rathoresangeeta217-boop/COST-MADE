@@ -183,6 +183,9 @@ interface ColumnConfig {
   shelves: number;
   verticalShelves?: number;
   boxShutters?: boolean[];
+  removedPartitions?: string[];
+  shelfOffsets?: Record<number, number>;
+  verticalShelfOffsets?: Record<number, number>;
   lock: "none" | "individual" | "central";
   handle: boolean;
   shutterLock?: "none" | "individual";
@@ -201,6 +204,135 @@ export default function CustomStorageCalculator() {
   const [isFullScreenDrawing, setIsFullScreenDrawing] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [openDoors, setOpenDoors] = useState<Set<string>>(new Set());
+
+  const [dragState, setDragState] = useState<{
+    bayIdx: number;
+    type: 'h' | 'v';
+    idx: number;
+    startX: number;
+    startY: number;
+    bayX: number;
+    bayY: number;
+    bayW: number;
+    bayH: number;
+    isDragging: boolean;
+    partitionId: string;
+  } | null>(null);
+
+  const getShelfY = (bay: ColumnConfig, sIdx: number, baseH: number, baseY: number) => {
+    if (bay.shelfOffsets?.[sIdx] !== undefined) {
+      return baseY + 2 + bay.shelfOffsets[sIdx] * baseH;
+    }
+    return baseY + 2 + ((sIdx + 1) * baseH) / ((bay.shelves || 0) + 1);
+  };
+
+  const getVerticalShelfX = (bay: ColumnConfig, vIdx: number, baseW: number, baseX: number) => {
+    if (bay.verticalShelfOffsets?.[vIdx] !== undefined) {
+      return baseX + 2 + bay.verticalShelfOffsets[vIdx] * baseW;
+    }
+    return baseX + 2 + ((vIdx + 1) * baseW) / ((bay.verticalShelves || 0) + 1);
+  };
+
+  
+  const renderShelves = (bay: ColumnConfig, idx: number, bayX: number, bayY: number, bayW: number, bayH: number) => {
+    const cols = (bay.verticalShelves || 0) + 1;
+    const rows = (bay.shelves || 0) + 1;
+    const baseW = bayW - 4;
+    const baseH = bayH - 4;
+    const elements = [];
+
+    const vXs = [bayX + 2];
+    for (let vIdx = 0; vIdx < (bay.verticalShelves || 0); vIdx++) {
+        vXs.push(getVerticalShelfX(bay, vIdx, baseW, bayX));
+    }
+    vXs.push(bayX + bayW - 2);
+
+    const hYs = [bayY + 2];
+    for (let sIdx = 0; sIdx < (bay.shelves || 0); sIdx++) {
+        hYs.push(getShelfY(bay, sIdx, baseH, bayY));
+    }
+    hYs.push(bayY + bayH - 2);
+
+    // Horizontal segments
+    for (let sIdx = 0; sIdx < (bay.shelves || 0); sIdx++) {
+      const sY = hYs[sIdx + 1];
+      for (let cIdx = 0; cIdx < cols; cIdx++) {
+        const pId = `h-${sIdx}-${cIdx}`;
+        const isRemoved = (bay.removedPartitions || []).includes(pId);
+        const sX1 = vXs[cIdx];
+        const sX2 = vXs[cIdx + 1];
+        elements.push(
+          <g key={pId} 
+            className={dragState?.partitionId === pId ? "cursor-grabbing" : "cursor-pointer hover:opacity-80 transition-opacity"} 
+            onPointerDown={(e) => {
+                setDragState({
+                    bayIdx: idx, type: 'h', idx: sIdx, startX: e.clientX, startY: e.clientY,
+                    bayX, bayY, bayW, bayH, isDragging: false, partitionId: pId
+                });
+                if (e.target && (e.target as Element).setPointerCapture) (e.target as Element).setPointerCapture(e.pointerId);
+                e.stopPropagation();
+            }}
+            onClick={(e) => { e.stopPropagation(); togglePartition(pId, idx); }}
+          >
+            <line x1={sX1} y1={sY} x2={sX2} y2={sY} stroke="transparent" strokeWidth="15" />
+            <line
+              x1={sX1} y1={sY} x2={sX2} y2={sY}
+              stroke={isRemoved ? "rgba(71,85,105,0.3)" : "#475569"}
+              strokeWidth={isRemoved ? "1" : "2"}
+              strokeDasharray={isRemoved ? "4,4" : "none"}
+            />
+          </g>
+        );
+      }
+    }
+
+    // Vertical segments
+    for (let vIdx = 0; vIdx < (bay.verticalShelves || 0); vIdx++) {
+      const vX = vXs[vIdx + 1];
+      for (let rIdx = 0; rIdx < rows; rIdx++) {
+        const pId = `v-${vIdx}-${rIdx}`;
+        const isRemoved = (bay.removedPartitions || []).includes(pId);
+        const vY1 = hYs[rIdx];
+        const vY2 = hYs[rIdx + 1];
+        elements.push(
+          <g key={pId} 
+            className={dragState?.partitionId === pId ? "cursor-grabbing" : "cursor-pointer hover:opacity-80 transition-opacity"} 
+            onPointerDown={(e) => {
+                setDragState({
+                    bayIdx: idx, type: 'v', idx: vIdx, startX: e.clientX, startY: e.clientY,
+                    bayX, bayY, bayW, bayH, isDragging: false, partitionId: pId
+                });
+                if (e.target && (e.target as Element).setPointerCapture) (e.target as Element).setPointerCapture(e.pointerId);
+                e.stopPropagation();
+            }}
+            onClick={(e) => { e.stopPropagation(); togglePartition(pId, idx); }}
+          >
+            <line x1={vX} y1={vY1} x2={vX} y2={vY2} stroke="transparent" strokeWidth="15" />
+            <line
+              x1={vX} y1={vY1} x2={vX} y2={vY2}
+              stroke={isRemoved ? "rgba(71,85,105,0.3)" : "#475569"}
+              strokeWidth={isRemoved ? "1" : "2"}
+              strokeDasharray={isRemoved ? "4,4" : "none"}
+            />
+          </g>
+        );
+      }
+    }
+    return elements;
+  };
+
+  const togglePartition = (partitionId: string, bayIdx: number) => {
+    const newBays = [...bays];
+    const bay = newBays[bayIdx];
+    const removed = new Set(bay.removedPartitions || []);
+    if (removed.has(partitionId)) {
+      removed.delete(partitionId);
+    } else {
+      removed.add(partitionId);
+    }
+    bay.removedPartitions = Array.from(removed);
+    setBays(newBays);
+  };
 
   const toggleDoor = (id: string) => {
     setOpenDoors(prev => {
@@ -378,12 +510,21 @@ export default function CustomStorageCalculator() {
     let totalVerticalShelvesCount = 0;
 
     bays.forEach((bay, index) => {
-      // Internal Shelves for this bay
+      // Internal Shelves for this bay (segmented calculation)
+      const cols = (bay.verticalShelves || 0) + 1;
+      const rows = (bay.shelves || 0) + 1;
+      let removedH = 0;
+      let removedV = 0;
+      (bay.removedPartitions || []).forEach(p => {
+        if (p.startsWith('h-')) removedH++;
+        if (p.startsWith('v-')) removedV++;
+      });
+      
       if (bay.shelves > 0) {
-        totalShelvesCount += bay.shelves;
+        totalShelvesCount += bay.shelves - (removedH / cols);
       }
       if (bay.verticalShelves && bay.verticalShelves > 0) {
-        totalVerticalShelvesCount += bay.verticalShelves;
+        totalVerticalShelvesCount += bay.verticalShelves - (removedV / rows);
       }
 
       if (bay.style === "open") {
@@ -1794,7 +1935,7 @@ export default function CustomStorageCalculator() {
                     <tr key={i} className="hover:bg-gray-50/55 transition-colors">
                       <td className="p-3 font-sans font-medium text-gray-900">{p.label}</td>
                       <td className="p-3 text-right">{p.w} x {p.l}</td>
-                      <td className="p-3 text-center font-bold">{p.qty}</td>
+                      <td className="p-3 text-center font-bold">{Number.isInteger(p.qty) ? p.qty : Number(p.qty).toFixed(2)}</td>
                       <td className="p-3 text-right">{(p.totalSqFt).toFixed(2)} <span className="text-[10px] text-gray-400">inc. 15%</span></td>
                       <td className="p-3 text-right">Rs {p.rate.toFixed(0)}</td>
                       <td className="p-3 text-right font-bold text-gray-900">Rs {p.cost.toFixed(0)}</td>
@@ -1865,6 +2006,11 @@ export default function CustomStorageCalculator() {
                   {isFullScreenDrawing ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
                 </button>
               </div>
+              {isFullScreenDrawing && (
+                <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-300 text-xs px-4 py-2 rounded-full shadow-lg z-[101] pointer-events-none">
+                  Interactive Mode: Click doors to open/close. Click shelf lines to remove/restore. Drag shelves to adjust positions.
+                </div>
+              )}
 
               <div className={`mx-auto flex justify-center items-center ${isFullScreenDrawing ? 'flex-1 min-w-fit min-h-fit mt-12' : 'min-w-fit min-h-fit'}`}>
                 {/* Dynamic SVG Drawing */}
@@ -1874,6 +2020,75 @@ export default function CustomStorageCalculator() {
                   height={(height + 100) * 0.4 * (isFullScreenDrawing ? zoomLevel : 1)}
                   className="drop-shadow-2xl transition-all duration-200"
                   xmlns="http://www.w3.org/2000/svg"
+                  onPointerMove={(e) => {
+                    if (!dragState) return;
+                    e.preventDefault();
+                    
+                    const { bayIdx, type, idx, startX, startY, bayW, bayH, partitionId } = dragState;
+                    
+                    // Simple drag calculation
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    
+                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                        if (!dragState.isDragging) {
+                           setDragState({...dragState, isDragging: true});
+                        }
+                    }
+
+                    if (!dragState.isDragging) return;
+
+                    const bay = bays[bayIdx];
+                    // The SVG scales differently depending on full screen and zoom
+                    // The easiest way is to use SVG's client rect to calculate ratio, but let's approximate:
+                    // SVG is drawn at width={(width+100)*0.4*zoomLevel} (if full screen), but its viewBox is (width+100)
+                    // So scaling factor from DOM pixels to SVG coordinates is roughly:
+                    // scale = viewBox_width / dom_width = (width+100) / ((width+100)*0.4*zoom) = 1 / (0.4 * zoom)
+                    const scale = 1 / (0.4 * (isFullScreenDrawing ? zoomLevel : 1));
+                    
+                    if (type === 'h') {
+                        let hPositions = bay.shelfOffsets || {};
+                        let currentRel = hPositions[idx];
+                        if (currentRel === undefined) {
+                            currentRel = (idx + 1) / ((bay.shelves || 0) + 1);
+                        }
+                        
+                        let deltaRel = (dy * scale) / bayH;
+                        let newRel = currentRel + deltaRel;
+                        newRel = Math.max(0.05, Math.min(0.95, newRel));
+                        
+                        updateBay(bayIdx, {
+                            shelfOffsets: { ...hPositions, [idx]: newRel }
+                        });
+                        setDragState({...dragState, startY: e.clientY}); 
+                    } else if (type === 'v') {
+                         let vPositions = bay.verticalShelfOffsets || {};
+                         let currentRel = vPositions[idx];
+                         if (currentRel === undefined) {
+                            currentRel = (idx + 1) / ((bay.verticalShelves || 0) + 1);
+                         }
+                         
+                         let deltaRel = (dx * scale) / bayW;
+                         let newRel = currentRel + deltaRel;
+                         newRel = Math.max(0.05, Math.min(0.95, newRel));
+                         
+                         updateBay(bayIdx, {
+                             verticalShelfOffsets: { ...vPositions, [idx]: newRel }
+                         });
+                         setDragState({...dragState, startX: e.clientX});
+                    }
+                  }}
+                  onPointerUp={(e) => {
+                    if (dragState) {
+                       setDragState(null);
+                    }
+                  }}
+                  onPointerLeave={(e) => {
+                    if (dragState) {
+                       setDragState(null);
+                    }
+                  }}
+
                 >
                 {/* Defs for hatches or shadows */}
                 <defs>
@@ -1994,36 +2209,8 @@ export default function CustomStorageCalculator() {
                             {/* Render different cabinet styles inside columns */}
                             {bay.style === "open" && (
                               <g>
-                                {/* Draw horizontal open shelves */}
-                                {Array.from({ length: bay.shelves }).map((_, sIdx) => {
-                                  const sY = bayY + ((sIdx + 1) * bayH) / (bay.shelves + 1);
-                                  return (
-                                    <line
-                                      key={sIdx}
-                                      x1={bayX + 2}
-                                      y1={sY}
-                                      x2={bayX + bayW - 2}
-                                      y2={sY}
-                                      stroke="#475569"
-                                      strokeWidth="2"
-                                    />
-                                  );
-                                })}
-                                {/* Draw vertical shelves (dividers) */}
-                                {bay.verticalShelves && bay.verticalShelves > 0 ? Array.from({ length: bay.verticalShelves }).map((_, vIdx) => {
-                                  const vX = bayX + ((vIdx + 1) * bayW) / (bay.verticalShelves! + 1);
-                                  return (
-                                    <line
-                                      key={`v-${vIdx}`}
-                                      x1={vX}
-                                      y1={bayY + 2}
-                                      x2={vX}
-                                      y2={bayY + bayH - 2}
-                                      stroke="#475569"
-                                      strokeWidth="2"
-                                    />
-                                  );
-                                }) : null}
+                                {/* Draw horizontal and vertical open shelves (segmented & draggable) */}
+                                {renderShelves(bay, idx, bayX, bayY, bayW, bayH)}
                                 
                                 {/* Draw box shutters */}
                                 {bay.boxShutters && bay.boxShutters.map((hasShutter, bIdx) => {
@@ -2041,7 +2228,7 @@ export default function CustomStorageCalculator() {
                                   const isOpen = openDoors.has(doorId);
                                   
                                   return (
-                                    <AnimatedDoorGroup key={`shutter-${bIdx}`} className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<><rect
+                                    <AnimatedDoorGroup key={`shutter-${bIdx}`} className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<><rect
                                             x={boxX + 2}
                                             y={boxY + 2}
                                             width={boxW - 4}
@@ -2098,7 +2285,7 @@ export default function CustomStorageCalculator() {
                             )}
 
                             {bay.style === "shutter_solid" && (
-                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Shutter face panel */}
+                              <AnimatedDoorGroup className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Shutter face panel */}
                                     <rect
                                       x={bayX + 2}
                                       y={bayY + 2}
@@ -2149,11 +2336,11 @@ export default function CustomStorageCalculator() {
                                     <rect x={bayX + 2} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
                                     <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
                                       {Math.round(bayW)}x{Math.round(bayH)}
-                                    </text></>} />
+                                    </text>{renderShelves(bay, idx, bayX, bayY, bayW, bayH)}</>} />
                             )}
 
                             {bay.style === "shutter_glass" && (
-                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Outer frame of shutter */}
+                              <AnimatedDoorGroup className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Outer frame of shutter */}
                                     <rect
                                       x={bayX + 2}
                                       y={bayY + 2}
@@ -2237,11 +2424,11 @@ export default function CustomStorageCalculator() {
                                     <rect x={bayX + 2} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
                                     <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
                                       {Math.round(bayW)}x{Math.round(bayH)}
-                                    </text></>} />
+                                    </text>{renderShelves(bay, idx, bayX, bayY, bayW, bayH)}</>} />
                             )}
 
                             {bay.style === "shutters_double" && (
-                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Left Door shutter */}
+                              <AnimatedDoorGroup className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Left Door shutter */}
                                     <rect
                                       x={bayX + 2}
                                       y={bayY + 2}
@@ -2295,7 +2482,7 @@ export default function CustomStorageCalculator() {
                                     <rect x={bayX + bayW - 6} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
                                     <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
                                       {Math.round(bayW)}x{Math.round(bayH)}
-                                    </text></>} />
+                                    </text>{renderShelves(bay, idx, bayX, bayY, bayW, bayH)}</>} />
                             )}
 
                             {bay.style === "3_drawers" && (
@@ -2308,7 +2495,7 @@ export default function CustomStorageCalculator() {
                                   return (
                                     <AnimatedDoorGroup 
                                       key={dIdx}
-                                      className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<>{/* Drawer front rectangular panel */}
+                                      className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<>{/* Drawer front rectangular panel */}
                                           <rect
                                             x={bayX + 2}
                                             y={dY + 2}
@@ -2362,7 +2549,7 @@ export default function CustomStorageCalculator() {
                                   return (
                                     <AnimatedDoorGroup 
                                       key={dIdx}
-                                      className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<>{/* Drawer front rectangular panel */}
+                                      className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<>{/* Drawer front rectangular panel */}
                                           <rect
                                             x={bayX + 2}
                                             y={dY + 2}
@@ -2405,7 +2592,7 @@ export default function CustomStorageCalculator() {
                                 })}
                               </g>
                             )}                            {bay.style === "1_drawer" && (
-                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`drawer-${idx}-0`)} isOpen={openDoors.has(`drawer-${idx}-0`)} childrenClosed={<><rect
+                              <AnimatedDoorGroup className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(`drawer-${idx}-0`)} isOpen={openDoors.has(`drawer-${idx}-0`)} childrenClosed={<><rect
                                       x={bayX + 2}
                                       y={bayY + 2}
                                       width={bayW - 4}
@@ -2460,7 +2647,7 @@ export default function CustomStorageCalculator() {
                                     <g>
                                       {/* Drawer */}
                                       <AnimatedDoorGroup 
-                                        className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(drawerId)} isOpen={openDoors.has(drawerId)} childrenClosed={<><rect
+                                        className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(drawerId)} isOpen={openDoors.has(drawerId)} childrenClosed={<><rect
                                               x={bayX + 2}
                                               y={dY + 2}
                                               width={bayW - 4}
@@ -2499,7 +2686,7 @@ export default function CustomStorageCalculator() {
                                       
                                       {/* Shutter */}
                                       <AnimatedDoorGroup 
-                                        className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(shutterId)} isOpen={openDoors.has(shutterId)} childrenClosed={<><rect
+                                        className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(shutterId)} isOpen={openDoors.has(shutterId)} childrenClosed={<><rect
                                               x={bayX + 2}
                                               y={shutterY + 2}
                                               width={bayW - 4}
@@ -2538,7 +2725,7 @@ export default function CustomStorageCalculator() {
                                               <rect x={bayX + 2} y={shutterY + shutterH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
                                             <text x={bayX + bayW / 2} y={shutterY + shutterH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
                                               {Math.round(bayW)}x{Math.round(shutterH)}
-                                            </text></>} />
+                                            </text>{renderShelves(bay, idx, bayX, shutterY, bayW, shutterH)}</>} />
                                     </g>
                                   );
                                 })()}
@@ -2555,7 +2742,7 @@ export default function CustomStorageCalculator() {
                                   return (
                                     <g>
                                       <AnimatedDoorGroup 
-                                        className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(drawerId)} isOpen={openDoors.has(drawerId)} childrenClosed={<><rect
+                                        className="cursor-pointer hover:opacity-80 transition-opacity" onClick={() => toggleDoor(drawerId)} isOpen={openDoors.has(drawerId)} childrenClosed={<><rect
                                               x={bayX + 2}
                                               y={dY + 2}
                                               width={bayW - 4}
@@ -2602,37 +2789,8 @@ export default function CustomStorageCalculator() {
                                         strokeWidth="2"
                                       />
 
-                                      {/* Render open adjustable shelves inside remaining space below drawer */}
-                                      {Array.from({ length: bay.shelves }).map((_, sIdx) => {
-                                        const remainingH = bayH - dH;
-                                        const sY = dY + dH + ((sIdx + 1) * remainingH) / (bay.shelves + 1);
-                                        return (
-                                          <line
-                                            key={sIdx}
-                                            x1={bayX + 3}
-                                            y1={sY}
-                                            x2={bayX + bayW - 3}
-                                            y2={sY}
-                                            stroke="#475569"
-                                            strokeWidth="1.5"
-                                          />
-                                        );
-                                      })}
-                                      {/* Visible vertical dividers below drawer */}
-                                      {bay.verticalShelves && bay.verticalShelves > 0 ? Array.from({ length: bay.verticalShelves }).map((_, vIdx) => {
-                                        const vX = bayX + ((vIdx + 1) * bayW) / (bay.verticalShelves! + 1);
-                                        return (
-                                          <line
-                                            key={`v-${vIdx}`}
-                                            x1={vX}
-                                            y1={dY + dH + 2}
-                                            x2={vX}
-                                            y2={bayY + bayH - 2}
-                                            stroke="#475569"
-                                            strokeWidth="1.5"
-                                          />
-                                        );
-                                      }) : null}
+                                      {/* Render open adjustable shelves inside remaining space below drawer (segmented & draggable) */}
+                                      {renderShelves(bay, idx, bayX, dY + dH - 2, bayW, bayH - dH)}
                                     </g>
                                   );
                                 })()}
@@ -2924,7 +3082,7 @@ export default function CustomStorageCalculator() {
                       <tr key={i} className="hover:bg-gray-50/50">
                         <td className="p-3 font-medium text-gray-900 font-sans">{p.label}</td>
                         <td className="p-3 font-mono">{p.w.toFixed(0)} × {p.l.toFixed(0)}</td>
-                        <td className="p-3 text-center font-bold">{p.qty}</td>
+                        <td className="p-3 text-center font-bold">{Number.isInteger(p.qty) ? p.qty : Number(p.qty).toFixed(2)}</td>
                         <td className="p-3 text-right font-mono">{p.areaSqFt.toFixed(2)}</td>
                         <td className="p-3 text-right font-bold font-mono">Rs {p.cost.toFixed(0)}</td>
                       </tr>
