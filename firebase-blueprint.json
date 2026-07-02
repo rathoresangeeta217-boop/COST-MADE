@@ -2,24 +2,24 @@
   "collections": [
     {
       "name": "projects",
-      "documentId": "projectId",
-      "description": "User projects",
-      "fields": {
-        "userId": "string",
+      "documentId": "{projectId}",
+      "schema": {
+        "id": "string",
         "name": "string",
         "clientName": "string",
         "createdAt": "string",
         "updatedAt": "string",
-        "items": "array"
+        "items": "ProjectItem[]",
+        "userId": "string"
       },
       "rules": [
         {
-          "allow": ["read", "delete"],
-          "condition": "request.auth != null && request.auth.uid == resource.data.userId"
+          "allow": ["read", "write"],
+          "condition": "request.auth != null && (resource == null || resource.data.userId == request.auth.uid) && request.resource.data.userId == request.auth.uid"
         },
         {
-          "allow": ["create", "update"],
-          "condition": "request.auth != null && request.auth.uid == request.resource.data.userId"
+          "allow": ["delete"],
+          "condition": "request.auth != null && resource.data.userId == request.auth.uid"
         }
       ]
     }

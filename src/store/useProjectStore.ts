@@ -28,6 +28,7 @@ interface ProjectStore {
   addItemToProject: (projectId: string, item: Omit<ProjectItem, 'id'>) => void;
   updateItemInProject: (projectId: string, itemId: string, item: Omit<ProjectItem, 'id'>) => void;
   deleteItemFromProject: (projectId: string, itemId: string) => void;
+  setProjects: (projects: Project[]) => void;
 }
 
 export const useProjectStore = create<ProjectStore>()(
@@ -87,6 +88,7 @@ export const useProjectStore = create<ProjectStore>()(
               : p
           ),
         })),
+      setProjects: (projects) => set({ projects }),
     }),
     {
       name: 'srk-project-storage',

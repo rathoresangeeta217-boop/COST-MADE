@@ -1,9 +1,11 @@
 import { Link, Outlet } from 'react-router-dom';
-import { Pickaxe, Home } from 'lucide-react';
+import { Pickaxe, Home, LogIn, LogOut, Cloud } from 'lucide-react';
 import { useFirestoreSync } from '../lib/useFirestoreSync';
+import { useAuth } from '../lib/AuthContext';
 
 export default function Layout() {
   useFirestoreSync();
+  const { user, signInWithGoogle, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -23,6 +25,32 @@ export default function Layout() {
               <Home className="w-4 h-4" />
               Products
             </Link>
+            
+            <div className="w-px h-6 bg-gray-200"></div>
+
+            {user ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <Cloud className="w-4 h-4 text-emerald-500" />
+                  <span className="hidden sm:inline">Synced</span>
+                </div>
+                <button
+                  onClick={logout}
+                  className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={signInWithGoogle}
+                className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+              >
+                <LogIn className="w-4 h-4" />
+                Sign in to Sync
+              </button>
+            )}
           </nav>
         </div>
       </header>

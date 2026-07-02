@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, ReactNode, FC } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "motion/react";
 import { useProjectStore } from "../store/useProjectStore";
 import {
   Calculator,
@@ -17,10 +18,46 @@ import {
   Minus,
   Settings,
   HelpCircle,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+
+const AnimatedDoorGroup: FC<{
+  isOpen: boolean;
+  onClick: () => void;
+  className: string;
+  childrenClosed: ReactNode;
+  childrenOpen: ReactNode;
+}> = ({ isOpen, onClick, className, childrenClosed, childrenOpen }) => (
+  <motion.g className={className} onClick={onClick}>
+    <AnimatePresence mode="wait">
+      {!isOpen ? (
+        <motion.g
+          key="closed"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          {childrenClosed}
+        </motion.g>
+      ) : (
+        <motion.g
+          key="open"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          {childrenOpen}
+        </motion.g>
+      )}
+    </AnimatePresence>
+  </motion.g>
+);
 
 // Reusing identical material pricing structures
 export const getBoards = (quality: string) => [
@@ -142,10 +179,14 @@ const TOOLING_COST = 150;
 const PROFIT_PERCENTAGE = 0.25;
 
 interface ColumnConfig {
-  style: "open" | "shutter_solid" | "shutter_glass" | "shutters_double" | "3_drawers" | "2_drawers" | "1_drawer" | "1_drawer_open";
+  style: "open" | "shutter_solid" | "shutter_glass" | "shutters_double" | "3_drawers" | "2_drawers" | "1_drawer" | "1_drawer_open" | "1_drawer_1_shutter";
   shelves: number;
+  verticalShelves?: number;
+  boxShutters?: boolean[];
   lock: "none" | "individual" | "central";
   handle: boolean;
+  shutterLock?: "none" | "individual";
+  shutterHandle?: boolean;
 }
 
 export default function CustomStorageCalculator() {
@@ -156,6 +197,19 @@ export default function CustomStorageCalculator() {
   const { projects, addItemToProject, updateItemInProject } = useProjectStore();
 
   const [activeTab, setActiveTab] = useState<"storage" | "drawer">("storage");
+  const [isCustomSize, setIsCustomSize] = useState<boolean>(false);
+  const [isFullScreenDrawing, setIsFullScreenDrawing] = useState<boolean>(false);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [openDoors, setOpenDoors] = useState<Set<string>>(new Set());
+
+  const toggleDoor = (id: string) => {
+    setOpenDoors(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Dimensions and properties
   const [width, setWidth] = useState<number>(1200); // mm
@@ -179,9 +233,9 @@ export default function CustomStorageCalculator() {
 
   // Column arrangements
   const [bays, setBays] = useState<ColumnConfig[]>([
-    { style: "shutter_solid", shelves: 1, lock: "individual", handle: true },
-    { style: "open", shelves: 1, lock: "none", handle: false },
-    { style: "3_drawers", shelves: 0, lock: "central", handle: true },
+    { style: "shutter_solid", shelves: 1, verticalShelves: 0, lock: "individual", handle: true },
+    { style: "open", shelves: 1, verticalShelves: 0, lock: "none", handle: false },
+    { style: "3_drawers", shelves: 0, verticalShelves: 0, lock: "central", handle: true },
   ]);
 
   useEffect(() => {
@@ -191,6 +245,7 @@ export default function CustomStorageCalculator() {
       if (item && item.config) {
         const c = item.config;
         if (c.activeTab !== undefined) setActiveTab(c.activeTab);
+        if (c.isCustomSize !== undefined) setIsCustomSize(c.isCustomSize);
         if (c.width !== undefined) setWidth(c.width);
         if (c.depth !== undefined) setDepth(c.depth);
         if (c.height !== undefined) setHeight(c.height);
@@ -217,8 +272,11 @@ export default function CustomStorageCalculator() {
       const added: ColumnConfig[] = Array.from({ length: numBays - bays.length }, () => ({
         style: "open",
         shelves: 1,
+        verticalShelves: 0,
         lock: "none",
         handle: true,
+        shutterLock: "none",
+        shutterHandle: true,
       }));
       setBays([...bays, ...added]);
     } else if (bays.length > numBays) {
@@ -317,15 +375,25 @@ export default function CustomStorageCalculator() {
     let totalIndividualLocksCount = 0;
     let totalCentralLocksCount = 0;
     let totalShelvesCount = 0;
+    let totalVerticalShelvesCount = 0;
 
     bays.forEach((bay, index) => {
       // Internal Shelves for this bay
       if (bay.shelves > 0) {
         totalShelvesCount += bay.shelves;
       }
+      if (bay.verticalShelves && bay.verticalShelves > 0) {
+        totalVerticalShelvesCount += bay.verticalShelves;
+      }
 
       if (bay.style === "open") {
-        // No doors or drawers
+        if (bay.boxShutters) {
+          const count = bay.boxShutters.filter(Boolean).length;
+          totalSolidShuttersCount += count;
+          totalHingesCount += count * 2;
+          if (bay.handle) totalHandlesCount += count;
+          if (bay.lock === "individual") totalIndividualLocksCount += count;
+        }
       } else if (bay.style === "shutter_solid") {
         totalSolidShuttersCount += 1;
         totalHingesCount += 2;
@@ -365,6 +433,14 @@ export default function CustomStorageCalculator() {
         totalDrawersCount += 1;
         if (bay.handle) totalHandlesCount += 1;
         if (bay.lock === "individual") totalIndividualLocksCount += 1;
+      } else if (bay.style === "1_drawer_1_shutter") {
+        totalDrawersCount += 1;
+        totalSolidShuttersCount += 1;
+        totalHingesCount += 2;
+        if (bay.handle) totalHandlesCount += 1;
+        if (bay.shutterHandle !== false) totalHandlesCount += 1; // Default true
+        if (bay.lock === "individual") totalIndividualLocksCount += 1;
+        if (bay.shutterLock === "individual") totalIndividualLocksCount += 1;
       }
     });
 
@@ -372,7 +448,7 @@ export default function CustomStorageCalculator() {
     if (totalShelvesCount > 0) {
       const shelfW = bayWidth - 2;
       pieces.push({
-        label: "Internal Adjustable Shelves",
+        label: "Internal Adjustable Shelves (Horizontal)",
         w: shelfW,
         l: depth - 20,
         qty: totalShelvesCount,
@@ -380,10 +456,35 @@ export default function CustomStorageCalculator() {
       });
     }
 
+    if (totalVerticalShelvesCount > 0) {
+      pieces.push({
+        label: "Internal Vertical Shelves/Dividers",
+        w: depth - 20,
+        l: sideH - 2, // span full height of inner compartment
+        qty: totalVerticalShelvesCount,
+        ebMm: sideH * totalVerticalShelvesCount, // Exposed front edges
+      });
+    }
+
     // Add Shutter faces
     bays.forEach((bay, index) => {
       const shH = Math.max(0, sideH - 4);
-      if (bay.style === "shutter_solid") {
+      if (bay.style === "open" && bay.boxShutters) {
+        const count = bay.boxShutters.filter(Boolean).length;
+        if (count > 0) {
+          const rows = (bay.shelves || 0) + 1;
+          const cols = (bay.verticalShelves || 0) + 1;
+          const boxW = Math.max(0, (bayWidth - 4) / cols);
+          const boxH = Math.max(0, (sideH - 4) / rows);
+          pieces.push({
+            label: `Small Box Shutters (Bay ${index + 1})`,
+            w: boxW,
+            l: boxH,
+            qty: count,
+            ebMm: (boxW + boxH) * 2 * count,
+          });
+        }
+      } else if (bay.style === "shutter_solid") {
         const shW = Math.max(0, bayWidth - 4);
         pieces.push({
           label: `Shutter Door (Bay ${index + 1})`,
@@ -391,6 +492,17 @@ export default function CustomStorageCalculator() {
           l: shH,
           qty: 1,
           ebMm: (shW + shH) * 2,
+        });
+      } else if (bay.style === "1_drawer_1_shutter") {
+        const faceH = Math.min(154, Math.max(0, Math.round(sideH / 3)));
+        const shutterH = Math.max(0, sideH - faceH - 4); // minus drawer face height
+        const shW = Math.max(0, bayWidth - 4);
+        pieces.push({
+          label: `Shutter Door (Bay ${index + 1})`,
+          w: shW,
+          l: shutterH,
+          qty: 1,
+          ebMm: (shW + shutterH) * 2,
         });
       } else if (bay.style === "shutter_glass") {
         // Wooden or aluminum frame for glass door, plus glass area cost
@@ -448,7 +560,7 @@ export default function CustomStorageCalculator() {
           qty: 1,
           ebMm: (faceW + faceH) * 2,
         });
-      } else if (bay.style === "1_drawer_open") {
+      } else if (bay.style === "1_drawer_open" || bay.style === "1_drawer_1_shutter") {
         const faceH = Math.min(154, Math.max(0, Math.round(sideH / 3)));
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
@@ -476,7 +588,7 @@ export default function CustomStorageCalculator() {
         } else if (bay.style === "1_drawer") {
           bayDrawers = 1;
           dh = Math.max(100, sideH - 60);
-        } else if (bay.style === "1_drawer_open") {
+        } else if (bay.style === "1_drawer_open" || bay.style === "1_drawer_1_shutter") {
           bayDrawers = 1;
           dh = 100;
         }
@@ -871,6 +983,17 @@ export default function CustomStorageCalculator() {
       else if (bay.style === "2_drawers") desc = `2 Drawer stack, lock: ${bay.lock}`;
       else if (bay.style === "1_drawer") desc = `1 Drawer (Full height), lock: ${bay.lock}`;
       else if (bay.style === "1_drawer_open") desc = `1 Drawer at top, open shelving below`;
+      else if (bay.style === "1_drawer_1_shutter") desc = `1 Drawer at top (lock: ${bay.lock}), solid shutter below (lock: ${bay.shutterLock || 'none'})`;
+      
+      if (bay.verticalShelves && bay.verticalShelves > 0) {
+        desc += `, ${bay.verticalShelves} vertical dividers`;
+      }
+      if (bay.boxShutters) {
+        const count = bay.boxShutters.filter(Boolean).length;
+        if (count > 0) {
+          desc += `, includes ${count} individual box shutter(s)`;
+        }
+      }
       text += `  - Column ${i + 1}: ${desc}\n`;
     });
     text += `------------------------------------\n`;
@@ -933,7 +1056,18 @@ export default function CustomStorageCalculator() {
       else if (bay.style === "2_drawers") desc = `2 stacked heavy-duty drawer files, locks: ${bay.lock}.`;
       else if (bay.style === "1_drawer") desc = `1 full-height deep drawer, locks: ${bay.lock}.`;
       else if (bay.style === "1_drawer_open") desc = `1 utility drawer at top, open workspace/shelving space below.`;
-      return [`Column ${i + 1}`, bay.style.toUpperCase().replace("_", " "), desc];
+      else if (bay.style === "1_drawer_1_shutter") desc = `1 utility drawer at top (lock: ${bay.lock}), single wood door shutter below (lock: ${bay.shutterLock || 'none'}).`;
+      
+      if (bay.verticalShelves && bay.verticalShelves > 0) {
+        desc += ` Includes ${bay.verticalShelves} vertical dividers.`;
+      }
+      if (bay.boxShutters) {
+        const count = bay.boxShutters.filter(Boolean).length;
+        if (count > 0) {
+          desc += ` Includes ${count} individual box shutter(s).`;
+        }
+      }
+      return [`Column ${i + 1}`, bay.style.toUpperCase().replace(/_/g, " "), desc];
     });
 
     autoTable(doc, {
@@ -1075,7 +1209,7 @@ export default function CustomStorageCalculator() {
                   productType: 'custom-storage' as const,
                   name: itemName,
                   config: {
-                    activeTab, width, depth, height, drawerWidth, drawerDepth,
+                    activeTab, isCustomSize, width, depth, height, drawerWidth, drawerDepth,
                     drawerHeight, drawerLock, drawerHandle, quality, boardId,
                     boardThickness, innerMica, outerMica, numBays, supportLegsCount,
                     bays
@@ -1158,11 +1292,22 @@ export default function CustomStorageCalculator() {
           
           {/* Section 1: Dimensions & Boards */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
-            <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
-              <Ruler className="w-4 h-4 text-gray-500" />
-              <h2 className="font-semibold text-gray-900 text-sm uppercase tracking-wider">
-                1. Dimensions & Material Base
-              </h2>
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Ruler className="w-4 h-4 text-gray-500" />
+                <h2 className="font-semibold text-gray-900 text-sm uppercase tracking-wider">
+                  1. Dimensions & Material Base
+                </h2>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-600 font-normal cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isCustomSize}
+                  onChange={(e) => setIsCustomSize(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                Custom Sizes
+              </label>
             </div>
 
             {/* Quality Tier Selection */}
@@ -1206,19 +1351,31 @@ export default function CustomStorageCalculator() {
                   <span>Width (W)</span>
                   <span className="font-semibold text-indigo-600 font-mono">{width} mm</span>
                 </label>
-                <input
-                  type="range"
-                  min="600"
-                  max="2400"
-                  step="50"
-                  value={width}
-                  onChange={(e) => setWidth(Number(e.target.value))}
-                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                />
-                <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                  <span>600 mm</span>
-                  <span>2400 mm</span>
-                </div>
+                {isCustomSize ? (
+                  <input
+                    type="number"
+                    value={width}
+                    onChange={(e) => setWidth(Number(e.target.value))}
+                    min={0}
+                    className="block w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                  />
+                ) : (
+                  <>
+                    <input
+                      type="range"
+                      min="600"
+                      max="2400"
+                      step="50"
+                      value={width}
+                      onChange={(e) => setWidth(Number(e.target.value))}
+                      className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                      <span>600 mm</span>
+                      <span>2400 mm</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Depth */}
@@ -1227,19 +1384,31 @@ export default function CustomStorageCalculator() {
                   <span>Depth (D)</span>
                   <span className="font-semibold text-indigo-600 font-mono">{depth} mm</span>
                 </label>
-                <input
-                  type="range"
-                  min="300"
-                  max="900"
-                  step="50"
-                  value={depth}
-                  onChange={(e) => setDepth(Number(e.target.value))}
-                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                />
-                <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                  <span>300 mm</span>
-                  <span>900 mm</span>
-                </div>
+                {isCustomSize ? (
+                  <input
+                    type="number"
+                    value={depth}
+                    onChange={(e) => setDepth(Number(e.target.value))}
+                    min={0}
+                    className="block w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                  />
+                ) : (
+                  <>
+                    <input
+                      type="range"
+                      min="300"
+                      max="900"
+                      step="50"
+                      value={depth}
+                      onChange={(e) => setDepth(Number(e.target.value))}
+                      className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                      <span>300 mm</span>
+                      <span>900 mm</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Height */}
@@ -1248,19 +1417,31 @@ export default function CustomStorageCalculator() {
                   <span>Height (H)</span>
                   <span className="font-semibold text-indigo-600 font-mono">{height} mm</span>
                 </label>
-                <input
-                  type="range"
-                  min="600"
-                  max="2100"
-                  step="50"
-                  value={height}
-                  onChange={(e) => setHeight(Number(e.target.value))}
-                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                />
-                <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                  <span>600 mm</span>
-                  <span>2100 mm</span>
-                </div>
+                {isCustomSize ? (
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(Number(e.target.value))}
+                    min={0}
+                    className="block w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                  />
+                ) : (
+                  <>
+                    <input
+                      type="range"
+                      min="600"
+                      max="2100"
+                      step="50"
+                      value={height}
+                      onChange={(e) => setHeight(Number(e.target.value))}
+                      className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                      <span>600 mm</span>
+                      <span>2100 mm</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1357,9 +1538,8 @@ export default function CustomStorageCalculator() {
                 <span className="font-bold text-gray-900 text-sm font-mono">{numBays} Bays</span>
                 <button
                   type="button"
-                  onClick={() => setNumBays(Math.min(5, numBays + 1))}
-                  disabled={numBays >= 5}
-                  className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 disabled:opacity-40 transition-colors"
+                  onClick={() => setNumBays(numBays + 1)}
+                  className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1406,32 +1586,74 @@ export default function CustomStorageCalculator() {
                         <option value="2_drawers">2 drawers file stack</option>
                         <option value="1_drawer">1 single drawer (full height)</option>
                         <option value="1_drawer_open">1 drawer at top + Open Shelves</option>
+                        <option value="1_drawer_1_shutter">1 drawer at top + Shutter below</option>
                       </select>
                     </div>
 
                     {/* Dynamic suboptions */}
                     <div className="grid grid-cols-2 gap-2">
                       {/* Internal shelf slider for shutter types */}
-                      {["open", "shutter_solid", "shutter_glass", "shutters_double", "1_drawer_open"].includes(bay.style) ? (
-                        <div>
-                          <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                            Inner Shelves
-                          </label>
-                          <select
-                            value={bay.shelves}
-                            onChange={(e) => updateBay(idx, { shelves: Number(e.target.value) })}
-                            className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none"
-                          >
-                            <option value={0}>0 Shelves</option>
-                            <option value={1}>1 Shelf</option>
-                            <option value={2}>2 Shelves</option>
-                            <option value={3}>3 Shelves</option>
-                          </select>
-                        </div>
+                      {["open", "shutter_solid", "shutter_glass", "shutters_double", "1_drawer_open", "1_drawer_1_shutter"].includes(bay.style) ? (
+                        <>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                              Inner Shelves
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={bay.shelves}
+                              onChange={(e) => updateBay(idx, { shelves: Number(e.target.value) })}
+                              className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1" title="Vertical Dividers">
+                              Vert. Dividers
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={bay.verticalShelves || 0}
+                              onChange={(e) => updateBay(idx, { verticalShelves: Number(e.target.value) })}
+                              className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none"
+                            />
+                          </div>
+                          
+                          {bay.style === "open" && ((bay.shelves || 0) + 1) * ((bay.verticalShelves || 0) + 1) > 1 && (
+                            <div className="col-span-2 mt-1 bg-gray-50 p-2 rounded-lg border border-gray-200">
+                              <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                Toggle Box Shutters (Click to add door)
+                              </label>
+                              <div 
+                                className="grid gap-1" 
+                                style={{ gridTemplateColumns: `repeat(${(bay.verticalShelves || 0) + 1}, minmax(0, 1fr))` }}
+                              >
+                                {Array.from({ length: ((bay.shelves || 0) + 1) * ((bay.verticalShelves || 0) + 1) }).map((_, bIdx) => (
+                                  <button
+                                    key={bIdx}
+                                    onClick={() => {
+                                      const newShutters = [...(bay.boxShutters || [])];
+                                      newShutters[bIdx] = !newShutters[bIdx];
+                                      updateBay(idx, { boxShutters: newShutters });
+                                    }}
+                                    className={`h-8 rounded text-[10px] font-medium border transition-colors ${
+                                      bay.boxShutters?.[bIdx] 
+                                        ? 'bg-indigo-500 border-indigo-600 text-white shadow-inner' 
+                                        : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-100'
+                                    }`}
+                                  >
+                                    {bay.boxShutters?.[bIdx] ? 'Door' : 'Open'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       ) : (
-                        <div className="opacity-40 select-none">
+                        <div className="opacity-40 select-none col-span-2">
                           <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                            Inner Shelves
+                            Inner Shelves / Dividers
                           </label>
                           <div className="px-2 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-xs font-mono text-gray-500">
                             N/A (Drawer)
@@ -1440,43 +1662,99 @@ export default function CustomStorageCalculator() {
                       )}
 
                       {/* Hardware selection (Lock / Handle) */}
-                      <div>
-                        <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                          Security Lock
-                        </label>
-                        {["open"].includes(bay.style) ? (
-                          <div className="px-2 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-xs font-mono text-gray-500 opacity-40">
-                            None
+                      <div className="col-span-2">
+                        {bay.style === "1_drawer_1_shutter" ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                                Drawer Lock
+                              </label>
+                              <select
+                                value={bay.lock}
+                                onChange={(e) => updateBay(idx, { lock: e.target.value as any })}
+                                className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none"
+                              >
+                                <option value="none">No Locks</option>
+                                <option value="individual">Key Lock</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                                Shutter Lock
+                              </label>
+                              <select
+                                value={bay.shutterLock || "none"}
+                                onChange={(e) => updateBay(idx, { shutterLock: e.target.value as any })}
+                                className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none"
+                              >
+                                <option value="none">No Locks</option>
+                                <option value="individual">Key Lock</option>
+                              </select>
+                            </div>
                           </div>
                         ) : (
-                          <select
-                            value={bay.lock}
-                            onChange={(e) => updateBay(idx, { lock: e.target.value as any })}
-                            className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none"
-                          >
-                            <option value="none">No Locks</option>
-                            <option value="individual">Key Lock</option>
-                            {["3_drawers", "2_drawers"].includes(bay.style) && (
-                              <option value="central">Central Lock</option>
+                          <>
+                            <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                              Security Lock
+                            </label>
+                            {bay.style === "open" && !bay.boxShutters?.some(Boolean) ? (
+                              <div className="px-2 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-xs font-mono text-gray-500 opacity-40">
+                                None
+                              </div>
+                            ) : (
+                              <select
+                                value={bay.lock}
+                                onChange={(e) => updateBay(idx, { lock: e.target.value as any })}
+                                className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs outline-none"
+                              >
+                                <option value="none">No Locks</option>
+                                <option value="individual">Key Lock</option>
+                                {["3_drawers", "2_drawers"].includes(bay.style) && (
+                                  <option value="central">Central Lock</option>
+                                )}
+                              </select>
                             )}
-                          </select>
+                          </>
                         )}
                       </div>
                     </div>
                   </div>
 
                   {/* Handle settings */}
-                  <div className="flex items-center gap-1.5 justify-end">
-                    {bay.style !== "open" && (
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={bay.handle}
-                          onChange={(e) => updateBay(idx, { handle: e.target.checked })}
-                          className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                        />
-                        <span className="text-xs font-medium text-gray-500">Handles</span>
-                      </label>
+                  <div className="flex items-center gap-1.5 justify-end mt-2">
+                    {bay.style === "1_drawer_1_shutter" ? (
+                      <div className="flex items-center gap-4">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={bay.handle}
+                            onChange={(e) => updateBay(idx, { handle: e.target.checked })}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                          />
+                          <span className="text-xs font-medium text-gray-500">Drawer Handle</span>
+                        </label>
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={bay.shutterHandle ?? true}
+                            onChange={(e) => updateBay(idx, { shutterHandle: e.target.checked })}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                          />
+                          <span className="text-xs font-medium text-gray-500">Shutter Handle</span>
+                        </label>
+                      </div>
+                    ) : (
+                      (bay.style !== "open" || bay.boxShutters?.some(Boolean)) && (
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={bay.handle}
+                            onChange={(e) => updateBay(idx, { handle: e.target.checked })}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                          />
+                          <span className="text-xs font-medium text-gray-500">Handles</span>
+                        </label>
+                      )
                     )}
                   </div>
                 </div>
@@ -1551,19 +1829,52 @@ export default function CustomStorageCalculator() {
             </div>
 
             {/* SVG drawing canvas container */}
-            <div className="aspect-[4/3] bg-slate-900 rounded-xl flex items-center justify-center p-6 border border-slate-800 shadow-inner relative overflow-hidden">
-              <div className="absolute top-2 right-2 text-[10px] font-mono text-slate-500 text-right">
-                W: {width}mm <br />
-                H: {height}mm <br />
-                D: {depth}mm
+            <div className={isFullScreenDrawing ? "fixed inset-0 z-[100] bg-slate-950 p-6 overflow-auto flex flex-col" : "bg-slate-900 rounded-xl p-6 border border-slate-800 shadow-inner relative overflow-auto w-full min-h-[400px]"}>
+              <div className={`z-10 flex gap-2 ${isFullScreenDrawing ? 'fixed top-4 right-6' : 'absolute top-2 right-2'}`}>
+                {isFullScreenDrawing && (
+                  <div className="flex bg-slate-800 rounded overflow-hidden shadow-lg border border-slate-700 items-center mr-2">
+                    <button
+                      onClick={() => setZoomLevel(z => Math.max(0.5, z - 0.25))}
+                      className="p-1.5 hover:bg-slate-700 text-slate-300 transition-colors border-r border-slate-700"
+                      title="Zoom Out"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs font-mono text-slate-300 px-3 min-w-[3.5rem] text-center">
+                      {Math.round(zoomLevel * 100)}%
+                    </span>
+                    <button
+                      onClick={() => setZoomLevel(z => Math.min(4, z + 0.25))}
+                      className="p-1.5 hover:bg-slate-700 text-slate-300 transition-colors border-l border-slate-700"
+                      title="Zoom In"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                <div className="text-[10px] font-mono text-slate-500 text-right bg-slate-900/80 px-2 py-1 rounded">
+                  W: {width}mm <br />
+                  H: {height}mm <br />
+                  D: {depth}mm
+                </div>
+                <button
+                  onClick={() => setIsFullScreenDrawing(!isFullScreenDrawing)}
+                  className="p-1 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded text-slate-400 transition-colors"
+                  title={isFullScreenDrawing ? "Minimize" : "Maximize"}
+                >
+                  {isFullScreenDrawing ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                </button>
               </div>
 
-              {/* Dynamic SVG Drawing */}
-              <svg
-                viewBox="0 0 500 350"
-                className="w-full h-full drop-shadow-2xl"
-                xmlns="http://www.w3.org/2000/svg"
-              >
+              <div className={`mx-auto flex justify-center items-center ${isFullScreenDrawing ? 'flex-1 min-w-fit min-h-fit mt-12' : 'min-w-fit min-h-fit'}`}>
+                {/* Dynamic SVG Drawing */}
+                <svg
+                  viewBox={`0 0 ${width + 100} ${height + 100}`}
+                  width={(width + 100) * 0.4 * (isFullScreenDrawing ? zoomLevel : 1)}
+                  height={(height + 100) * 0.4 * (isFullScreenDrawing ? zoomLevel : 1)}
+                  className="drop-shadow-2xl transition-all duration-200"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
                 {/* Defs for hatches or shadows */}
                 <defs>
                   <pattern id="wood" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -1579,10 +1890,11 @@ export default function CustomStorageCalculator() {
                 {/* Draw main outer storage body frame */}
                 {/* Left/Right Offset to center inside viewport */}
                 {(() => {
-                  const paddingX = 40;
-                  const paddingY = 40;
-                  const drawW = 420;
-                  const drawH = 240;
+                  const drawW = width;
+                  const drawH = height;
+                  
+                  const paddingX = 50;
+                  const paddingY = 50;
 
                   // Outer Rect (Main cabinet body)
                   return (
@@ -1697,148 +2009,293 @@ export default function CustomStorageCalculator() {
                                     />
                                   );
                                 })}
+                                {/* Draw vertical shelves (dividers) */}
+                                {bay.verticalShelves && bay.verticalShelves > 0 ? Array.from({ length: bay.verticalShelves }).map((_, vIdx) => {
+                                  const vX = bayX + ((vIdx + 1) * bayW) / (bay.verticalShelves! + 1);
+                                  return (
+                                    <line
+                                      key={`v-${vIdx}`}
+                                      x1={vX}
+                                      y1={bayY + 2}
+                                      x2={vX}
+                                      y2={bayY + bayH - 2}
+                                      stroke="#475569"
+                                      strokeWidth="2"
+                                    />
+                                  );
+                                }) : null}
+                                
+                                {/* Draw box shutters */}
+                                {bay.boxShutters && bay.boxShutters.map((hasShutter, bIdx) => {
+                                  if (!hasShutter) return null;
+                                  const cols = (bay.verticalShelves || 0) + 1;
+                                  const rows = (bay.shelves || 0) + 1;
+                                  const r = Math.floor(bIdx / cols);
+                                  const c = bIdx % cols;
+                                  
+                                  const boxW = bayW / cols;
+                                  const boxH = bayH / rows;
+                                  const boxX = bayX + c * boxW;
+                                  const boxY = bayY + r * boxH;
+                                  const doorId = `box-${idx}-${bIdx}`;
+                                  const isOpen = openDoors.has(doorId);
+                                  
+                                  return (
+                                    <AnimatedDoorGroup key={`shutter-${bIdx}`} className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<><rect
+                                            x={boxX + 2}
+                                            y={boxY + 2}
+                                            width={boxW - 4}
+                                            height={boxH - 4}
+                                            fill="#334155"
+                                            stroke="#475569"
+                                            strokeWidth="1"
+                                            rx="2"
+                                          />
+                                          {/* Wood grain hatch */}
+                                          <rect
+                                            x={boxX + 4}
+                                            y={boxY + 4}
+                                            width={boxW - 8}
+                                            height={boxH - 8}
+                                            fill="url(#wood)"
+                                            opacity="0.2"
+                                            pointerEvents="none"
+                                          />
+                                          {/* Handle */}
+                                          {bay.handle && (
+                                            <rect
+                                              x={boxX + boxW - 8}
+                                              y={boxY + boxH / 2 - 10}
+                                              width="2.5"
+                                              height="20"
+                                              fill="#94a3b8"
+                                              rx="1"
+                                            />
+                                          )}
+                                          {/* Lock */}
+                                          {bay.lock === "individual" && (
+                                            <circle cx={boxX + boxW - 14} cy={boxY + boxH / 2} r="2" fill="#e2e8f0" />
+                                          )}</>} childrenOpen={<><rect
+                                            x={boxX + 2}
+                                            y={boxY + 2}
+                                            width={boxW - 4}
+                                            height={boxH - 4}
+                                            fill="rgba(0,0,0,0.2)"
+                                            stroke="#475569"
+                                            strokeWidth="1"
+                                            strokeDasharray="4,4"
+                                            rx="2"
+                                          />
+                                            {/* Hinges */}
+                                            <rect x={boxX + 2} y={boxY + 20} width="4" height="15" fill="#94a3b8" rx="1" />
+                                            <rect x={boxX + 2} y={boxY + boxH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
+                                          <text x={boxX + boxW / 2} y={boxY + boxH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="10px" fontFamily="monospace">
+                                            {Math.round(boxW)}x{Math.round(boxH)}
+                                          </text></>} />
+                                  );
+                                })}
                               </g>
                             )}
 
                             {bay.style === "shutter_solid" && (
-                              <g>
-                                {/* Shutter face panel */}
-                                <rect
-                                  x={bayX + 2}
-                                  y={bayY + 2}
-                                  width={bayW - 4}
-                                  height={bayH - 4}
-                                  fill="#334155"
-                                  stroke="#475569"
-                                  strokeWidth="1"
-                                  rx="2"
-                                />
-                                {/* Handle indicator (vertical bar) */}
-                                {bay.handle && (
-                                  <rect
-                                    x={bayX + bayW - 8}
-                                    y={bayY + bayH / 2 - 20}
-                                    width="2.5"
-                                    height="40"
-                                    fill="#94a3b8"
-                                    rx="1"
-                                  />
-                                )}
-                                {/* Lock circle keyhole */}
-                                {bay.lock === "individual" && (
-                                  <circle cx={bayX + bayW - 14} cy={bayY + bayH / 2} r="2" fill="#e2e8f0" />
-                                )}
-                                {/* Wood grain hatch within shutter */}
-                                <rect
-                                  x={bayX + 4}
-                                  y={bayY + 4}
-                                  width={bayW - 8}
-                                  height={bayH - 8}
-                                  fill="url(#wood)"
-                                  opacity="0.2"
-                                  pointerEvents="none"
-                                />
-                              </g>
+                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Shutter face panel */}
+                                    <rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="#334155"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      rx="2"
+                                    />
+                                    {/* Handle indicator (vertical bar) */}
+                                    {bay.handle && (
+                                      <rect
+                                        x={bayX + bayW - 8}
+                                        y={bayY + bayH / 2 - 20}
+                                        width="2.5"
+                                        height="40"
+                                        fill="#94a3b8"
+                                        rx="1"
+                                      />
+                                    )}
+                                    {/* Lock circle keyhole */}
+                                    {bay.lock === "individual" && (
+                                      <circle cx={bayX + bayW - 14} cy={bayY + bayH / 2} r="2" fill="#e2e8f0" />
+                                    )}
+                                    {/* Wood grain hatch within shutter */}
+                                    <rect
+                                      x={bayX + 4}
+                                      y={bayY + 4}
+                                      width={bayW - 8}
+                                      height={bayH - 8}
+                                      fill="url(#wood)"
+                                      opacity="0.2"
+                                      pointerEvents="none"
+                                    /></>} childrenOpen={<><rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="rgba(0,0,0,0.2)"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      strokeDasharray="4,4"
+                                      rx="2"
+                                    />
+                                    {/* Hinges */}
+                                    <rect x={bayX + 2} y={bayY + 20} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <rect x={bayX + 2} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                      {Math.round(bayW)}x{Math.round(bayH)}
+                                    </text></>} />
                             )}
 
                             {bay.style === "shutter_glass" && (
-                              <g>
-                                {/* Outer frame of shutter */}
-                                <rect
-                                  x={bayX + 2}
-                                  y={bayY + 2}
-                                  width={bayW - 4}
-                                  height={bayH - 4}
-                                  fill="#1e293b"
-                                  stroke="#475569"
-                                  strokeWidth="2.5"
-                                  rx="2"
-                                />
-                                {/* Glass center pane */}
-                                <rect
-                                  x={bayX + 12}
-                                  y={bayY + 12}
-                                  width={bayW - 24}
-                                  height={bayH - 24}
-                                  fill="url(#glass)"
-                                  stroke="#0284c7"
-                                  strokeWidth="0.75"
-                                  rx="1"
-                                />
-                                {/* Diagonal glass reflection lines */}
-                                <line x1={bayX + 16} y1={bayY + 20} x2={bayX + bayW - 20} y2={bayY + bayH - 20} stroke="#bae6fd" strokeWidth="0.5" opacity="0.4" />
-                                <line x1={bayX + 24} y1={bayY + 20} x2={bayX + bayW - 28} y2={bayY + bayH - 40} stroke="#bae6fd" strokeWidth="0.5" opacity="0.4" />
-                                
-                                {/* Visible shelves inside glass */}
-                                {Array.from({ length: bay.shelves }).map((_, sIdx) => {
-                                  const sY = bayY + ((sIdx + 1) * bayH) / (bay.shelves + 1);
-                                  return (
-                                    <line
-                                      key={sIdx}
-                                      x1={bayX + 12}
-                                      y1={sY}
-                                      x2={bayX + bayW - 12}
-                                      y2={sY}
+                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Outer frame of shutter */}
+                                    <rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="#1e293b"
                                       stroke="#475569"
-                                      strokeWidth="1.5"
-                                      strokeDasharray="2,2"
+                                      strokeWidth="2.5"
+                                      rx="2"
                                     />
-                                  );
-                                })}
+                                    {/* Glass center pane */}
+                                    <rect
+                                      x={bayX + 12}
+                                      y={bayY + 12}
+                                      width={bayW - 24}
+                                      height={bayH - 24}
+                                      fill="url(#glass)"
+                                      stroke="#0284c7"
+                                      strokeWidth="0.75"
+                                      rx="1"
+                                    />
+                                    {/* Diagonal glass reflection lines */}
+                                    <line x1={bayX + 16} y1={bayY + 20} x2={bayX + bayW - 20} y2={bayY + bayH - 20} stroke="#bae6fd" strokeWidth="0.5" opacity="0.4" />
+                                    <line x1={bayX + 24} y1={bayY + 20} x2={bayX + bayW - 28} y2={bayY + bayH - 40} stroke="#bae6fd" strokeWidth="0.5" opacity="0.4" />
+                                    
+                                    {/* Visible shelves inside glass */}
+                                    {Array.from({ length: bay.shelves }).map((_, sIdx) => {
+                                      const sY = bayY + ((sIdx + 1) * bayH) / (bay.shelves + 1);
+                                      return (
+                                        <line
+                                          key={sIdx}
+                                          x1={bayX + 12}
+                                          y1={sY}
+                                          x2={bayX + bayW - 12}
+                                          y2={sY}
+                                          stroke="#475569"
+                                          strokeWidth="1.5"
+                                          strokeDasharray="2,2"
+                                        />
+                                      );
+                                    })}
+                                    {/* Visible vertical dividers inside glass */}
+                                    {bay.verticalShelves && bay.verticalShelves > 0 ? Array.from({ length: bay.verticalShelves }).map((_, vIdx) => {
+                                      const vX = bayX + ((vIdx + 1) * bayW) / (bay.verticalShelves! + 1);
+                                      return (
+                                        <line
+                                          key={`v-${vIdx}`}
+                                          x1={vX}
+                                          y1={bayY + 12}
+                                          x2={vX}
+                                          y2={bayY + bayH - 12}
+                                          stroke="#475569"
+                                          strokeWidth="1.5"
+                                          strokeDasharray="2,2"
+                                        />
+                                      );
+                                    }) : null}
 
-                                {/* Handle */}
-                                {bay.handle && (
-                                  <rect
-                                    x={bayX + bayW - 11}
-                                    y={bayY + bayH / 2 - 15}
-                                    width="2"
-                                    height="30"
-                                    fill="#f1f5f9"
-                                  />
-                                )}
-                              </g>
+                                    {/* Handle */}
+                                    {bay.handle && (
+                                      <rect
+                                        x={bayX + bayW - 11}
+                                        y={bayY + bayH / 2 - 15}
+                                        width="2"
+                                        height="30"
+                                        fill="#f1f5f9"
+                                      />
+                                    )}</>} childrenOpen={<><rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="rgba(0,0,0,0.2)"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      strokeDasharray="4,4"
+                                      rx="2"
+                                    />
+                                    {/* Hinges */}
+                                    <rect x={bayX + 2} y={bayY + 20} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <rect x={bayX + 2} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                      {Math.round(bayW)}x{Math.round(bayH)}
+                                    </text></>} />
                             )}
 
                             {bay.style === "shutters_double" && (
-                              <g>
-                                {/* Left Door shutter */}
-                                <rect
-                                  x={bayX + 2}
-                                  y={bayY + 2}
-                                  width={bayW / 2 - 3}
-                                  height={bayH - 4}
-                                  fill="#334155"
-                                  stroke="#475569"
-                                  strokeWidth="1"
-                                  rx="2"
-                                />
-                                {/* Right Door shutter */}
-                                <rect
-                                  x={bayX + bayW / 2 + 1}
-                                  y={bayY + 2}
-                                  width={bayW / 2 - 3}
-                                  height={bayH - 4}
-                                  fill="#334155"
-                                  stroke="#475569"
-                                  strokeWidth="1"
-                                  rx="2"
-                                />
-                                {/* Center split gap line */}
-                                <line x1={bayX + bayW / 2} y1={bayY + 2} x2={bayX + bayW / 2} y2={bayY + bayH - 2} stroke="#1e293b" strokeWidth="1" />
-                                
-                                {/* 2 Handles adjacent to the center split */}
-                                {bay.handle && (
-                                  <g>
-                                    <rect x={bayX + bayW / 2 - 5} y={bayY + bayH / 2 - 15} width="2" height="30" fill="#94a3b8" />
-                                    <rect x={bayX + bayW / 2 + 3} y={bayY + bayH / 2 - 15} width="2" height="30" fill="#94a3b8" />
-                                  </g>
-                                )}
+                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`bay-${idx}`)} isOpen={openDoors.has(`bay-${idx}`)} childrenClosed={<>{/* Left Door shutter */}
+                                    <rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW / 2 - 3}
+                                      height={bayH - 4}
+                                      fill="#334155"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      rx="2"
+                                    />
+                                    {/* Right Door shutter */}
+                                    <rect
+                                      x={bayX + bayW / 2 + 1}
+                                      y={bayY + 2}
+                                      width={bayW / 2 - 3}
+                                      height={bayH - 4}
+                                      fill="#334155"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      rx="2"
+                                    />
+                                    {/* Center split gap line */}
+                                    <line x1={bayX + bayW / 2} y1={bayY + 2} x2={bayX + bayW / 2} y2={bayY + bayH - 2} stroke="#1e293b" strokeWidth="1" />
+                                    
+                                    {/* 2 Handles adjacent to the center split */}
+                                    {bay.handle && (
+                                      <g>
+                                        <rect x={bayX + bayW / 2 - 5} y={bayY + bayH / 2 - 15} width="2" height="30" fill="#94a3b8" />
+                                        <rect x={bayX + bayW / 2 + 3} y={bayY + bayH / 2 - 15} width="2" height="30" fill="#94a3b8" />
+                                      </g>
+                                    )}
 
-                                {/* Lock keyhole */}
-                                {bay.lock === "individual" && (
-                                  <circle cx={bayX + bayW / 2 + 10} cy={bayY + bayH / 2} r="2" fill="#e2e8f0" />
-                                )}
-                              </g>
+                                    {/* Lock keyhole */}
+                                    {bay.lock === "individual" && (
+                                      <circle cx={bayX + bayW / 2 + 10} cy={bayY + bayH / 2} r="2" fill="#e2e8f0" />
+                                    )}</>} childrenOpen={<><rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="rgba(0,0,0,0.2)"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      strokeDasharray="4,4"
+                                      rx="2"
+                                    />
+                                    {/* Hinges */}
+                                    <rect x={bayX + 2} y={bayY + 20} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <rect x={bayX + 2} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <rect x={bayX + bayW - 6} y={bayY + 20} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <rect x={bayX + bayW - 6} y={bayY + bayH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
+                                    <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                      {Math.round(bayW)}x{Math.round(bayH)}
+                                    </text></>} />
                             )}
 
                             {bay.style === "3_drawers" && (
@@ -1846,35 +2303,50 @@ export default function CustomStorageCalculator() {
                                 {Array.from({ length: 3 }).map((_, dIdx) => {
                                   const dH = bayH / 3;
                                   const dY = bayY + dIdx * dH;
+                                  const doorId = `drawer-${idx}-${dIdx}`;
+                                  const isOpen = openDoors.has(doorId);
                                   return (
-                                    <g key={dIdx}>
-                                      {/* Drawer front rectangular panel */}
-                                      <rect
-                                        x={bayX + 2}
-                                        y={dY + 2}
-                                        width={bayW - 4}
-                                        height={dH - 4}
-                                        fill="#475569"
-                                        stroke="#334155"
-                                        strokeWidth="1"
-                                        rx="2"
-                                      />
-                                      {/* Drawer handle indicator (centered horizontal profile) */}
-                                      {bay.handle && (
-                                        <rect
-                                          x={bayX + bayW / 2 - 25}
-                                          y={dY + dH / 2 - 2}
-                                          width="50"
-                                          height="4"
-                                          fill="#94a3b8"
-                                          rx="1"
-                                        />
-                                      )}
-                                      {/* Individual key lock on each or central lock on top */}
-                                      {((bay.lock === "central" && dIdx === 0) || (bay.lock === "individual")) && (
-                                        <circle cx={bayX + bayW - 12} cy={dY + 10} r="1.5" fill="#e2e8f0" />
-                                      )}
-                                    </g>
+                                    <AnimatedDoorGroup 
+                                      key={dIdx}
+                                      className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<>{/* Drawer front rectangular panel */}
+                                          <rect
+                                            x={bayX + 2}
+                                            y={dY + 2}
+                                            width={bayW - 4}
+                                            height={dH - 4}
+                                            fill="#475569"
+                                            stroke="#334155"
+                                            strokeWidth="1"
+                                            rx="2"
+                                          />
+                                          {/* Drawer handle indicator (centered horizontal profile) */}
+                                          {bay.handle && (
+                                            <rect
+                                              x={bayX + bayW / 2 - 25}
+                                              y={dY + dH / 2 - 2}
+                                              width="50"
+                                              height="4"
+                                              fill="#94a3b8"
+                                              rx="1"
+                                            />
+                                          )}
+                                          {/* Individual key lock on each or central lock on top */}
+                                          {((bay.lock === "central" && dIdx === 0) || (bay.lock === "individual")) && (
+                                            <circle cx={bayX + bayW - 12} cy={dY + 10} r="1.5" fill="#e2e8f0" />
+                                          )}</>} childrenOpen={<><rect
+                                            x={bayX + 2}
+                                            y={dY + 2}
+                                            width={bayW - 4}
+                                            height={dH - 4}
+                                            fill="rgba(0,0,0,0.2)"
+                                            stroke="#475569"
+                                            strokeWidth="1"
+                                            strokeDasharray="4,4"
+                                            rx="2"
+                                          />
+                                          <text x={bayX + bayW / 2} y={dY + dH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                            {Math.round(bayW)}x{Math.round(dH)}
+                                          </text></>} />
                                   );
                                 })}
                               </g>
@@ -1885,67 +2357,191 @@ export default function CustomStorageCalculator() {
                                 {Array.from({ length: 2 }).map((_, dIdx) => {
                                   const dH = bayH / 2;
                                   const dY = bayY + dIdx * dH;
+                                  const doorId = `drawer-${idx}-${dIdx}`;
+                                  const isOpen = openDoors.has(doorId);
                                   return (
-                                    <g key={dIdx}>
-                                      {/* Drawer front rectangular panel */}
-                                      <rect
-                                        x={bayX + 2}
-                                        y={dY + 2}
-                                        width={bayW - 4}
-                                        height={dH - 4}
-                                        fill="#475569"
-                                        stroke="#334155"
-                                        strokeWidth="1"
-                                        rx="2"
-                                      />
-                                      {/* Drawer handle indicator */}
-                                      {bay.handle && (
-                                        <rect
-                                          x={bayX + bayW / 2 - 30}
-                                          y={dY + dH / 2 - 2.5}
-                                          width="60"
-                                          height="5"
-                                          fill="#94a3b8"
-                                          rx="1"
-                                        />
-                                      )}
-                                      {/* Lock keyhole */}
-                                      {((bay.lock === "central" && dIdx === 0) || (bay.lock === "individual")) && (
-                                        <circle cx={bayX + bayW - 12} cy={dY + 12} r="1.5" fill="#e2e8f0" />
-                                      )}
-                                    </g>
+                                    <AnimatedDoorGroup 
+                                      key={dIdx}
+                                      className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(doorId)} isOpen={isOpen} childrenClosed={<>{/* Drawer front rectangular panel */}
+                                          <rect
+                                            x={bayX + 2}
+                                            y={dY + 2}
+                                            width={bayW - 4}
+                                            height={dH - 4}
+                                            fill="#475569"
+                                            stroke="#334155"
+                                            strokeWidth="1"
+                                            rx="2"
+                                          />
+                                          {/* Drawer handle indicator */}
+                                          {bay.handle && (
+                                            <rect
+                                              x={bayX + bayW / 2 - 30}
+                                              y={dY + dH / 2 - 2.5}
+                                              width="60"
+                                              height="5"
+                                              fill="#94a3b8"
+                                              rx="1"
+                                            />
+                                          )}
+                                          {/* Lock keyhole */}
+                                          {((bay.lock === "central" && dIdx === 0) || (bay.lock === "individual")) && (
+                                            <circle cx={bayX + bayW - 12} cy={dY + 12} r="1.5" fill="#e2e8f0" />
+                                          )}</>} childrenOpen={<><rect
+                                            x={bayX + 2}
+                                            y={dY + 2}
+                                            width={bayW - 4}
+                                            height={dH - 4}
+                                            fill="rgba(0,0,0,0.2)"
+                                            stroke="#475569"
+                                            strokeWidth="1"
+                                            strokeDasharray="4,4"
+                                            rx="2"
+                                          />
+                                          <text x={bayX + bayW / 2} y={dY + dH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                            {Math.round(bayW)}x{Math.round(dH)}
+                                          </text></>} />
                                   );
                                 })}
                               </g>
+                            )}                            {bay.style === "1_drawer" && (
+                              <AnimatedDoorGroup className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(`drawer-${idx}-0`)} isOpen={openDoors.has(`drawer-${idx}-0`)} childrenClosed={<><rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="#475569"
+                                      stroke="#334155"
+                                      strokeWidth="1"
+                                      rx="2"
+                                    />
+                                    {/* Drawer handle indicator */}
+                                    {bay.handle && (
+                                      <rect
+                                        x={bayX + bayW / 2 - 30}
+                                        y={bayY + bayH / 2 - 2.5}
+                                        width="60"
+                                        height="5"
+                                        fill="#94a3b8"
+                                        rx="1"
+                                      />
+                                    )}
+                                    {/* Lock keyhole */}
+                                    {bay.lock === "individual" && (
+                                      <circle cx={bayX + bayW - 12} cy={bayY + 12} r="1.5" fill="#e2e8f0" />
+                                    )}</>} childrenOpen={<><rect
+                                      x={bayX + 2}
+                                      y={bayY + 2}
+                                      width={bayW - 4}
+                                      height={bayH - 4}
+                                      fill="rgba(0,0,0,0.2)"
+                                      stroke="#475569"
+                                      strokeWidth="1"
+                                      strokeDasharray="4,4"
+                                      rx="2"
+                                    />
+                                    <text x={bayX + bayW / 2} y={bayY + bayH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                      {Math.round(bayW)}x{Math.round(bayH)}
+                                    </text></>} />
                             )}
 
-                            {bay.style === "1_drawer" && (
+                            {bay.style === "1_drawer_1_shutter" && (
                               <g>
-                                <rect
-                                  x={bayX + 2}
-                                  y={bayY + 2}
-                                  width={bayW - 4}
-                                  height={bayH - 4}
-                                  fill="#475569"
-                                  stroke="#334155"
-                                  strokeWidth="1"
-                                  rx="2"
-                                />
-                                {/* Drawer handle indicator */}
-                                {bay.handle && (
-                                  <rect
-                                    x={bayX + bayW / 2 - 30}
-                                    y={bayY + bayH / 2 - 2.5}
-                                    width="60"
-                                    height="5"
-                                    fill="#94a3b8"
-                                    rx="1"
-                                  />
-                                )}
-                                {/* Lock keyhole */}
-                                {bay.lock === "individual" && (
-                                  <circle cx={bayX + bayW - 12} cy={bayY + 12} r="1.5" fill="#e2e8f0" />
-                                )}
+                                {/* Drawer box panel at the top */}
+                                {(() => {
+                                  const dH = Math.min(65, bayH / 3);
+                                  const dY = bayY;
+                                  const shutterY = dY + dH;
+                                  const shutterH = bayH - dH;
+                                  const drawerId = `drawer-${idx}-0`;
+                                  const shutterId = `bay-${idx}`;
+                                  
+                                  return (
+                                    <g>
+                                      {/* Drawer */}
+                                      <AnimatedDoorGroup 
+                                        className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(drawerId)} isOpen={openDoors.has(drawerId)} childrenClosed={<><rect
+                                              x={bayX + 2}
+                                              y={dY + 2}
+                                              width={bayW - 4}
+                                              height={dH - 4}
+                                              fill="#475569"
+                                              stroke="#334155"
+                                              strokeWidth="1"
+                                              rx="2"
+                                            />
+                                            {bay.handle && (
+                                              <rect
+                                                x={bayX + bayW / 2 - 25}
+                                                y={dY + dH / 2 - 2}
+                                                width="50"
+                                                height="4"
+                                                fill="#94a3b8"
+                                                rx="1"
+                                              />
+                                            )}
+                                            {bay.lock === "individual" && (
+                                              <circle cx={bayX + bayW - 12} cy={dY + 12} r="1.5" fill="#e2e8f0" />
+                                            )}</>} childrenOpen={<><rect
+                                              x={bayX + 2}
+                                              y={dY + 2}
+                                              width={bayW - 4}
+                                              height={dH - 4}
+                                              fill="rgba(0,0,0,0.2)"
+                                              stroke="#475569"
+                                              strokeWidth="1"
+                                              strokeDasharray="4,4"
+                                              rx="2"
+                                            />
+                                            <text x={bayX + bayW / 2} y={dY + dH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="10px" fontFamily="monospace">
+                                              {Math.round(bayW)}x{Math.round(dH)}
+                                            </text></>} />
+                                      
+                                      {/* Shutter */}
+                                      <AnimatedDoorGroup 
+                                        className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(shutterId)} isOpen={openDoors.has(shutterId)} childrenClosed={<><rect
+                                              x={bayX + 2}
+                                              y={shutterY + 2}
+                                              width={bayW - 4}
+                                              height={shutterH - 4}
+                                              fill="#475569"
+                                              stroke="#334155"
+                                              strokeWidth="1"
+                                              rx="2"
+                                            />
+                                            {/* Vertical Shutter handle */}
+                                            {bay.shutterHandle !== false && (
+                                              <rect
+                                                x={bayX + bayW - 15}
+                                                y={shutterY + shutterH / 2 - 30}
+                                                width="6"
+                                                height="60"
+                                                fill="#94a3b8"
+                                                rx="2"
+                                              />
+                                            )}
+                                            {bay.shutterLock === "individual" && (
+                                              <circle cx={bayX + bayW - 12} cy={shutterY + 12} r="1.5" fill="#e2e8f0" />
+                                            )}</>} childrenOpen={<><rect
+                                              x={bayX + 2}
+                                              y={shutterY + 2}
+                                              width={bayW - 4}
+                                              height={shutterH - 4}
+                                              fill="rgba(0,0,0,0.2)"
+                                              stroke="#475569"
+                                              strokeWidth="1"
+                                              strokeDasharray="4,4"
+                                              rx="2"
+                                            />
+                                              {/* Hinges */}
+                                              <rect x={bayX + 2} y={shutterY + 20} width="4" height="15" fill="#94a3b8" rx="1" />
+                                              <rect x={bayX + 2} y={shutterY + shutterH - 35} width="4" height="15" fill="#94a3b8" rx="1" />
+                                            <text x={bayX + bayW / 2} y={shutterY + shutterH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="12px" fontFamily="monospace">
+                                              {Math.round(bayW)}x{Math.round(shutterH)}
+                                            </text></>} />
+                                    </g>
+                                  );
+                                })()}
                               </g>
                             )}
 
@@ -1955,28 +2551,43 @@ export default function CustomStorageCalculator() {
                                 {(() => {
                                   const dH = Math.min(65, bayH / 3);
                                   const dY = bayY;
+                                  const drawerId = `drawer-${idx}-0`;
                                   return (
                                     <g>
-                                      <rect
-                                        x={bayX + 2}
-                                        y={dY + 2}
-                                        width={bayW - 4}
-                                        height={dH - 4}
-                                        fill="#475569"
-                                        stroke="#334155"
-                                        strokeWidth="1"
-                                        rx="2"
-                                      />
-                                      {bay.handle && (
-                                        <rect
-                                          x={bayX + bayW / 2 - 25}
-                                          y={dY + dH / 2 - 2}
-                                          width="50"
-                                          height="4"
-                                          fill="#94a3b8"
-                                          rx="1"
-                                        />
-                                      )}
+                                      <AnimatedDoorGroup 
+                                        className={isFullScreenDrawing ? "cursor-pointer hover:opacity-80 transition-opacity" : ""} onClick={() => isFullScreenDrawing && toggleDoor(drawerId)} isOpen={openDoors.has(drawerId)} childrenClosed={<><rect
+                                              x={bayX + 2}
+                                              y={dY + 2}
+                                              width={bayW - 4}
+                                              height={dH - 4}
+                                              fill="#475569"
+                                              stroke="#334155"
+                                              strokeWidth="1"
+                                              rx="2"
+                                            />
+                                            {bay.handle && (
+                                              <rect
+                                                x={bayX + bayW / 2 - 25}
+                                                y={dY + dH / 2 - 2}
+                                                width="50"
+                                                height="4"
+                                                fill="#94a3b8"
+                                                rx="1"
+                                              />
+                                            )}</>} childrenOpen={<><rect
+                                              x={bayX + 2}
+                                              y={dY + 2}
+                                              width={bayW - 4}
+                                              height={dH - 4}
+                                              fill="rgba(0,0,0,0.2)"
+                                              stroke="#475569"
+                                              strokeWidth="1"
+                                              strokeDasharray="4,4"
+                                              rx="2"
+                                            />
+                                            <text x={bayX + bayW / 2} y={dY + dH / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize="10px" fontFamily="monospace">
+                                              {Math.round(bayW)}x{Math.round(dH)}
+                                            </text></>} />
                                       {bay.lock === "individual" && (
                                         <circle cx={bayX + bayW - 12} cy={dY + 10} r="1.5" fill="#e2e8f0" />
                                       )}
@@ -2007,6 +2618,21 @@ export default function CustomStorageCalculator() {
                                           />
                                         );
                                       })}
+                                      {/* Visible vertical dividers below drawer */}
+                                      {bay.verticalShelves && bay.verticalShelves > 0 ? Array.from({ length: bay.verticalShelves }).map((_, vIdx) => {
+                                        const vX = bayX + ((vIdx + 1) * bayW) / (bay.verticalShelves! + 1);
+                                        return (
+                                          <line
+                                            key={`v-${vIdx}`}
+                                            x1={vX}
+                                            y1={dY + dH + 2}
+                                            x2={vX}
+                                            y2={bayY + bayH - 2}
+                                            stroke="#475569"
+                                            strokeWidth="1.5"
+                                          />
+                                        );
+                                      }) : null}
                                     </g>
                                   );
                                 })()}
@@ -2020,6 +2646,7 @@ export default function CustomStorageCalculator() {
                   );
                 })()}
               </svg>
+              </div>
             </div>
           </div>
 
@@ -2127,11 +2754,22 @@ export default function CustomStorageCalculator() {
           {/* Left Side: Parameters */}
           <div className="xl:col-span-7 space-y-6">
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
-              <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
-                <Ruler className="w-4 h-4 text-gray-500" />
-                <h2 className="font-semibold text-gray-900 text-sm uppercase tracking-wider">
-                  Single Drawer Dimensions
-                </h2>
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Ruler className="w-4 h-4 text-gray-500" />
+                  <h2 className="font-semibold text-gray-900 text-sm uppercase tracking-wider">
+                    Single Drawer Dimensions
+                  </h2>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-600 font-normal cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isCustomSize}
+                    onChange={(e) => setIsCustomSize(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Custom Sizes
+                </label>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
@@ -2141,19 +2779,31 @@ export default function CustomStorageCalculator() {
                     <span>Width (W)</span>
                     <span className="font-semibold text-indigo-600 font-mono">{drawerWidth} mm</span>
                   </label>
-                  <input
-                    type="range"
-                    min="300"
-                    max="1200"
-                    step="50"
-                    value={drawerWidth}
-                    onChange={(e) => setDrawerWidth(Number(e.target.value))}
-                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                  />
-                  <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                    <span>300 mm</span>
-                    <span>1200 mm</span>
-                  </div>
+                  {isCustomSize ? (
+                    <input
+                      type="number"
+                      value={drawerWidth}
+                      onChange={(e) => setDrawerWidth(Number(e.target.value))}
+                      min={0}
+                      className="block w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                    />
+                  ) : (
+                    <>
+                      <input
+                        type="range"
+                        min="300"
+                        max="1200"
+                        step="50"
+                        value={drawerWidth}
+                        onChange={(e) => setDrawerWidth(Number(e.target.value))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      />
+                      <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                        <span>300 mm</span>
+                        <span>1200 mm</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Drawer Depth */}
@@ -2162,19 +2812,31 @@ export default function CustomStorageCalculator() {
                     <span>Depth (D)</span>
                     <span className="font-semibold text-indigo-600 font-mono">{drawerDepth} mm</span>
                   </label>
-                  <input
-                    type="range"
-                    min="300"
-                    max="600"
-                    step="50"
-                    value={drawerDepth}
-                    onChange={(e) => setDrawerDepth(Number(e.target.value))}
-                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                  />
-                  <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                    <span>300 mm</span>
-                    <span>600 mm</span>
-                  </div>
+                  {isCustomSize ? (
+                    <input
+                      type="number"
+                      value={drawerDepth}
+                      onChange={(e) => setDrawerDepth(Number(e.target.value))}
+                      min={0}
+                      className="block w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                    />
+                  ) : (
+                    <>
+                      <input
+                        type="range"
+                        min="300"
+                        max="600"
+                        step="50"
+                        value={drawerDepth}
+                        onChange={(e) => setDrawerDepth(Number(e.target.value))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      />
+                      <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                        <span>300 mm</span>
+                        <span>600 mm</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Drawer Height */}
@@ -2183,19 +2845,31 @@ export default function CustomStorageCalculator() {
                     <span>Face Height (H)</span>
                     <span className="font-semibold text-indigo-600 font-mono">{drawerHeight} mm</span>
                   </label>
-                  <input
-                    type="range"
-                    min="100"
-                    max="400"
-                    step="20"
-                    value={drawerHeight}
-                    onChange={(e) => setDrawerHeight(Number(e.target.value))}
-                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                  />
-                  <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                    <span>100 mm</span>
-                    <span>400 mm</span>
-                  </div>
+                  {isCustomSize ? (
+                    <input
+                      type="number"
+                      value={drawerHeight}
+                      onChange={(e) => setDrawerHeight(Number(e.target.value))}
+                      min={0}
+                      className="block w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                    />
+                  ) : (
+                    <>
+                      <input
+                        type="range"
+                        min="100"
+                        max="400"
+                        step="20"
+                        value={drawerHeight}
+                        onChange={(e) => setDrawerHeight(Number(e.target.value))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      />
+                      <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                        <span>100 mm</span>
+                        <span>400 mm</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
