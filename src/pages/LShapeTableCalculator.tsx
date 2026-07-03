@@ -125,9 +125,7 @@ export const getTopRate = (
 
 const LEGS = [
   { id: "board", name: "Board/Wooden Legs", cost: 0 },
-  { id: "metal_loop", name: "Metal Loop Legs", cost: 1500 },
-  { id: "metal_c", name: "Metal C-Legs", cost: 1800 },
-  { id: "metal_leg", name: "Metal Leg", cost: 0 },
+  { id: "metal_leg", name: "Metal Legs", cost: 1500 },
 ];
 
 const WIRE_MANAGER_COST = 450;
@@ -1638,7 +1636,7 @@ export default function LShapeTableCalculator() {
   const [includeModesty, setIncludeModesty] = useState<boolean>(true);
   const [modestyType, setModestyType] = useState<string>("standard");
   const [metalModestyType, setMetalModestyType] = useState<string>("plain");
-  const [wireManagement, setWireManagement] = useState<string>("grommet"); // 'grommet', 'raceway', 'none'
+  const [wireManagement, setWireManagement] = useState<string>("raceway"); // 'raceway', 'none'
   const [includePedestal, setIncludePedestal] = useState<boolean>(true);
   const [includeDrawer, setIncludeDrawer] = useState<boolean>(false);
   const [drawerCount, setDrawerCount] = useState<number>(1);
@@ -1668,7 +1666,7 @@ export default function LShapeTableCalculator() {
     useState<string>("standard");
   const [exportIncludePedestal, setExportIncludePedestal] = useState(true);
   const [exportWireManagement, setExportWireManagement] =
-    useState<string>("grommet");
+    useState<string>("raceway");
   const [exportThickness, setExportThickness] = useState<string>("all");
   const [exportIncludeReturnStorage, setExportIncludeReturnStorage] =
     useState(true);
@@ -2919,6 +2917,7 @@ export default function LShapeTableCalculator() {
                       >
                         <option value="straight">Straight Leg</option>
                         <option value="u_shape">U-Shape Leg</option>
+                        <option value="angular">Angular Leg</option>
                       </select>
                     </div>
                   </>
@@ -2935,8 +2934,7 @@ export default function LShapeTableCalculator() {
                   className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
                 >
                   <option value="none">None</option>
-                  <option value="grommet">PVC Grommets</option>
-                  <option value="raceway">Aluminum Flap Box</option>
+                                    <option value="raceway">Aluminum Flap Box</option>
                 </select>
               </div>
 
@@ -3326,8 +3324,7 @@ export default function LShapeTableCalculator() {
                   className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
                 >
                   <option value="none">None</option>
-                  <option value="grommet">PVC Grommets</option>
-                  <option value="raceway">Alu Flap Raceway</option>
+                                    <option value="raceway">Alu Flap Raceway</option>
                 </select>
               </div>
 

@@ -358,6 +358,12 @@ export default function CustomStorageCalculator() {
   const [quality, setQuality] = useState<string>("standard");
   const [boardId, setBoardId] = useState<string>("plpb");
   const [boardThickness, setBoardThickness] = useState<number>(18);
+  const [shutterBoardId, setShutterBoardId] = useState<string>("default");
+  const [backPanelBoardId, setBackPanelBoardId] = useState<string>("default");
+  const [drawerBoxBoardId, setDrawerBoxBoardId] = useState<string>("default");
+  const [pieceOverrides, setPieceOverrides] = useState<Record<string, string>>({});
+  const [thicknessOverrides, setThicknessOverrides] = useState<Record<string, number>>({});
+  const [showAdvancedMaterials, setShowAdvancedMaterials] = useState<boolean>(false);
   const [innerMica, setInnerMica] = useState<string>("none");
   const [outerMica, setOuterMica] = useState<string>("none");
   const [numBays, setNumBays] = useState<number>(3);
@@ -389,6 +395,11 @@ export default function CustomStorageCalculator() {
         if (c.quality !== undefined) setQuality(c.quality);
         if (c.boardId !== undefined) setBoardId(c.boardId);
         if (c.boardThickness !== undefined) setBoardThickness(c.boardThickness);
+        if (c.shutterBoardId !== undefined) setShutterBoardId(c.shutterBoardId);
+        if (c.backPanelBoardId !== undefined) setBackPanelBoardId(c.backPanelBoardId);
+        if (c.drawerBoxBoardId !== undefined) setDrawerBoxBoardId(c.drawerBoxBoardId);
+        if (c.pieceOverrides !== undefined) setPieceOverrides(c.pieceOverrides);
+        if (c.thicknessOverrides !== undefined) setThicknessOverrides(c.thicknessOverrides);
         if (c.innerMica !== undefined) setInnerMica(c.innerMica);
         if (c.outerMica !== undefined) setOuterMica(c.outerMica);
         if (c.numBays !== undefined) setNumBays(c.numBays);
@@ -453,6 +464,19 @@ export default function CustomStorageCalculator() {
   // Perform complete structural calculations
   const calcData = useMemo(() => {
     const thickness = boardThickness;
+    const getCustomMat = (type, fallbackRate, fallbackName = "") => {
+      let customId = "default";
+      let thickness = 9;
+      if (type === "shutter") { customId = shutterBoardId; thickness = boardThickness; }
+      else if (type === "back") { customId = backPanelBoardId; thickness = 9; }
+      else if (type === "drawer") { customId = drawerBoxBoardId; thickness = 9; }
+      
+      if (customId === "default") return { cost: fallbackRate, append: fallbackName };
+      const b = boards.find(x => x.id === customId);
+      if (!b) return { cost: fallbackRate, append: fallbackName };
+      return { cost: getBoardRate(customId, b.costPerSqFt, thickness, quality) + totalMicaRate, append: ` (${b.name} ${thickness}mm)` };
+    };
+
     const pieces: {
       label: string;
       w: number;
@@ -472,12 +496,13 @@ export default function CustomStorageCalculator() {
     pieces.push({ label: "Side Panels", w: depth, l: sideH, qty: 2, ebMm: (sideH * 2 + depth) * 2 });
 
     // Back Panel (Standard PLPB backing or matching ply/board, standard cost Rs 35/sqft)
+    const bp = getCustomMat('back', 35, ' (9mm PLPB Backing)');
     pieces.push({
-      label: "Back Panel (9mm PLPB Backing)",
+      label: "Back Panel" + bp.append,
       w: width,
       l: height,
       qty: 1,
-      customCostPerSqFt: 35,
+      customCostPerSqFt: bp.cost,
       ebMm: 0,
     });
 
@@ -618,7 +643,8 @@ export default function CustomStorageCalculator() {
           const boxW = Math.max(0, (bayWidth - 4) / cols);
           const boxH = Math.max(0, (sideH - 4) / rows);
           pieces.push({
-            label: `Small Box Shutters (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+            label: `Small Box Shutters (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
             w: boxW,
             l: boxH,
             qty: count,
@@ -628,7 +654,8 @@ export default function CustomStorageCalculator() {
       } else if (bay.style === "shutter_solid") {
         const shW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Shutter Door (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Shutter Door (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: shW,
           l: shH,
           qty: 1,
@@ -639,7 +666,8 @@ export default function CustomStorageCalculator() {
         const shutterH = Math.max(0, sideH - faceH - 4); // minus drawer face height
         const shW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Shutter Door (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Shutter Door (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: shW,
           l: shutterH,
           qty: 1,
@@ -649,7 +677,8 @@ export default function CustomStorageCalculator() {
         // Wooden or aluminum frame for glass door, plus glass area cost
         const shW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Glass Shutter Door Frame (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Glass Shutter Door Frame (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: shW,
           l: shH,
           qty: 1,
@@ -658,14 +687,16 @@ export default function CustomStorageCalculator() {
       } else if (bay.style === "shutters_double") {
         const shW = Math.max(0, (bayWidth - 6) / 2);
         pieces.push({
-          label: `Double Shutter Door (Bay ${index + 1} - Left)`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Double Shutter Door (Bay ${index + 1} - Left)${getCustomMat('shutter', rateToUse).append}`,
           w: shW,
           l: shH,
           qty: 1,
           ebMm: (shW + shH) * 2,
         });
         pieces.push({
-          label: `Double Shutter Door (Bay ${index + 1} - Right)`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Double Shutter Door (Bay ${index + 1} - Right)${getCustomMat('shutter', rateToUse).append}`,
           w: shW,
           l: shH,
           qty: 1,
@@ -675,7 +706,8 @@ export default function CustomStorageCalculator() {
         const faceH = Math.max(0, Math.round(sideH / 3) - 4);
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Drawer Faces (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Drawer Faces (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: faceW,
           l: faceH,
           qty: 3,
@@ -685,7 +717,8 @@ export default function CustomStorageCalculator() {
         const faceH = Math.max(0, Math.round(sideH / 2) - 4);
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Drawer Faces (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Drawer Faces (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: faceW,
           l: faceH,
           qty: 2,
@@ -695,7 +728,8 @@ export default function CustomStorageCalculator() {
         const faceH = Math.max(0, sideH - 4);
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Drawer Face (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Drawer Face (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: faceW,
           l: faceH,
           qty: 1,
@@ -705,7 +739,8 @@ export default function CustomStorageCalculator() {
         const faceH = Math.min(154, Math.max(0, Math.round(sideH / 3)));
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
-          label: `Drawer Face (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+          label: `Drawer Face (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
           w: faceW,
           l: faceH,
           qty: 1,
@@ -739,18 +774,20 @@ export default function CustomStorageCalculator() {
           const dd = Math.max(0, depth - 36);
 
           // Drawer Bottoms (uses lightweight backing material for rate calculations)
+          const dbBottom = getCustomMat('drawer', 35);
           pieces.push({
-            label: `Drawer Bottom Panels (Bay ${index + 1})`,
+            label: `Drawer Bottom Panels (Bay ${index + 1})` + dbBottom.append,
             w: dw,
             l: dd,
             qty: bayDrawers,
-            customCostPerSqFt: 35,
+            customCostPerSqFt: dbBottom.cost,
             ebMm: 0,
           });
 
           // Drawer Sides
           pieces.push({
-            label: `Drawer Side Panels (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
+            label: `Drawer Side Panels (Bay ${index + 1})${getCustomMat('drawer', rateToUse).append}`,
             w: dd,
             l: dh,
             qty: bayDrawers * 2,
@@ -759,7 +796,8 @@ export default function CustomStorageCalculator() {
 
           // Drawer Back and Inner Front
           pieces.push({
-            label: `Drawer Inner Front/Back (Bay ${index + 1})`,
+customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
+            label: `Drawer Inner Front/Back (Bay ${index + 1})${getCustomMat('drawer', rateToUse).append}`,
             w: Math.max(0, dw - 36),
             l: dh,
             qty: bayDrawers * 2,
@@ -780,10 +818,34 @@ export default function CustomStorageCalculator() {
       const wasteSqFt = areaSqFt * 0.15; // 15% wastage markup
       const totalSqFt = areaSqFt + wasteSqFt;
 
-      const itemRate = p.customCostPerSqFt ?? rateToUse;
+            const overrideLabel = p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
+      const overrideId = pieceOverrides[overrideLabel];
+      const overrideThickness = thicknessOverrides[overrideLabel];
+      let itemRate = p.customCostPerSqFt ?? rateToUse;
+      
+      let baseId = boardId;
+      if (overrideLabel.includes('Shutter') || overrideLabel.includes('Drawer Face')) baseId = shutterBoardId !== 'default' ? shutterBoardId : boardId;
+      else if (overrideLabel.includes('Back')) baseId = backPanelBoardId !== 'default' ? backPanelBoardId : boardId;
+      else if (overrideLabel.includes('Drawer')) baseId = drawerBoxBoardId !== 'default' ? drawerBoxBoardId : boardId;
+      
+      let currentId = (overrideId && overrideId !== 'default') ? overrideId : baseId;
+      
+      if ((overrideId && overrideId !== 'default') || overrideThickness) {
+          const customB = boards.find(x => x.id === currentId);
+          if (customB) {
+            let defaultT = boardThickness;
+            if (overrideLabel.includes('Back') || overrideLabel.includes('Bottom') || overrideLabel.includes('Inner')) defaultT = 9;
+            
+            const t = overrideThickness || defaultT;
+            itemRate = getBoardRate(currentId, customB.costPerSqFt, t, quality);
+            if (overrideLabel.includes('Shutter') || overrideLabel.includes('Drawer Face')) itemRate += totalMicaRate;
+            p.label = overrideLabel + ` (${customB.name} ${t}mm)`;
+          }
+      }
       const itemCost = totalSqFt * itemRate;
 
       if (p.customCostPerSqFt) {
+
         backingCost += itemCost;
       } else {
         boardsSqFt += areaSqFt;
@@ -937,10 +999,23 @@ export default function CustomStorageCalculator() {
       bayWidth,
       sideH,
     };
-  }, [width, depth, height, boardId, boardThickness, quality, innerMica, outerMica, numBays, bays, rateToUse, supportLegsCount]);
+  }, [width, depth, height, boardId, boardThickness, quality, innerMica, outerMica, numBays, bays, rateToUse, supportLegsCount, shutterBoardId, backPanelBoardId, drawerBoxBoardId, pieceOverrides, thicknessOverrides]);
 
   // Single Drawer Calculations
   const drawerCalcData = useMemo(() => {
+    const getCustomMat = (type, fallbackRate, fallbackName = "") => {
+      let customId = "default";
+      let thickness = 9;
+      if (type === "shutter") { customId = shutterBoardId; thickness = boardThickness; }
+      else if (type === "back") { customId = backPanelBoardId; thickness = 9; }
+      else if (type === "drawer") { customId = drawerBoxBoardId; thickness = 9; }
+      
+      if (customId === "default") return { cost: fallbackRate, append: fallbackName };
+      const b = boards.find(x => x.id === customId);
+      if (!b) return { cost: fallbackRate, append: fallbackName };
+      return { cost: getBoardRate(customId, b.costPerSqFt, thickness, quality) + totalMicaRate, append: ` (${b.name} ${thickness}mm)` };
+    };
+
     const pieces: {
       label: string;
       w: number;
@@ -952,7 +1027,8 @@ export default function CustomStorageCalculator() {
 
     // Drawer Face
     pieces.push({
-      label: "Drawer Face",
+customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
+      label: "Drawer Face" + getCustomMat('shutter', rateToUse).append,
       w: drawerWidth,
       l: drawerHeight,
       qty: 1,
@@ -964,18 +1040,20 @@ export default function CustomStorageCalculator() {
     const boxHeight = Math.max(0, drawerHeight - 30); 
 
     // Drawer Bottom
+    const dbBottom = getCustomMat('drawer', 35);
     pieces.push({
-      label: "Drawer Bottom Panel",
+      label: "Drawer Bottom Panel" + dbBottom.append,
       w: boxWidth,
       l: boxDepth,
       qty: 1,
-      customCostPerSqFt: 35, // PLPB backing
+      customCostPerSqFt: dbBottom.cost,
       ebMm: 0,
     });
 
     // Drawer Sides
     pieces.push({
-      label: "Drawer Side Panels",
+customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
+      label: "Drawer Side Panels" + getCustomMat('drawer', rateToUse).append,
       w: boxDepth,
       l: boxHeight,
       qty: 2,
@@ -984,7 +1062,8 @@ export default function CustomStorageCalculator() {
 
     // Drawer Back and Inner Front
     pieces.push({
-      label: "Drawer Inner Front/Back",
+customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
+      label: "Drawer Inner Front/Back" + getCustomMat('drawer', rateToUse).append,
       w: Math.max(0, boxWidth - 36),
       l: boxHeight,
       qty: 2,
@@ -1000,10 +1079,34 @@ export default function CustomStorageCalculator() {
       const wasteSqFt = areaSqFt * 0.15;
       const totalSqFt = areaSqFt + wasteSqFt;
 
-      const itemRate = p.customCostPerSqFt ?? rateToUse;
+            const overrideLabel = p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
+      const overrideId = pieceOverrides[overrideLabel];
+      const overrideThickness = thicknessOverrides[overrideLabel];
+      let itemRate = p.customCostPerSqFt ?? rateToUse;
+      
+      let baseId = boardId;
+      if (overrideLabel.includes('Shutter') || overrideLabel.includes('Drawer Face')) baseId = shutterBoardId !== 'default' ? shutterBoardId : boardId;
+      else if (overrideLabel.includes('Back')) baseId = backPanelBoardId !== 'default' ? backPanelBoardId : boardId;
+      else if (overrideLabel.includes('Drawer')) baseId = drawerBoxBoardId !== 'default' ? drawerBoxBoardId : boardId;
+      
+      let currentId = (overrideId && overrideId !== 'default') ? overrideId : baseId;
+      
+      if ((overrideId && overrideId !== 'default') || overrideThickness) {
+          const customB = boards.find(x => x.id === currentId);
+          if (customB) {
+            let defaultT = boardThickness;
+            if (overrideLabel.includes('Back') || overrideLabel.includes('Bottom') || overrideLabel.includes('Inner')) defaultT = 9;
+            
+            const t = overrideThickness || defaultT;
+            itemRate = getBoardRate(currentId, customB.costPerSqFt, t, quality);
+            if (overrideLabel.includes('Shutter') || overrideLabel.includes('Drawer Face')) itemRate += totalMicaRate;
+            p.label = overrideLabel + ` (${customB.name} ${t}mm)`;
+          }
+      }
       const itemCost = totalSqFt * itemRate;
 
       if (p.customCostPerSqFt) {
+
         backingCost += itemCost;
       } else {
         materialCost += itemCost;
@@ -1098,7 +1201,7 @@ export default function CustomStorageCalculator() {
         grandTotal,
       },
     };
-  }, [drawerWidth, drawerDepth, drawerHeight, drawerLock, drawerHandle, rateToUse]);
+  }, [drawerWidth, drawerDepth, drawerHeight, drawerLock, drawerHandle, rateToUse, drawerBoxBoardId, shutterBoardId, pieceOverrides, thicknessOverrides]);
 
   // Copy Specifications Text
   const copySpecifications = () => {
@@ -1353,7 +1456,7 @@ export default function CustomStorageCalculator() {
                     activeTab, isCustomSize, width, depth, height, drawerWidth, drawerDepth,
                     drawerHeight, drawerLock, drawerHandle, quality, boardId,
                     boardThickness, innerMica, outerMica, numBays, supportLegsCount,
-                    bays
+                    bays, shutterBoardId, backPanelBoardId, drawerBoxBoardId, pieceOverrides, thicknessOverrides
                   },
                   costSummary: {
                     totalCost: calcData.totals.grandTotal,
@@ -1622,6 +1725,76 @@ export default function CustomStorageCalculator() {
                 </select>
               </div>
             </div>
+
+
+            {/* Advanced Board Materials */}
+            <div className="pt-2">
+              <label className="flex items-center space-x-2 text-sm font-medium text-gray-700 mb-3 cursor-pointer">
+                <input type="checkbox" checked={showAdvancedMaterials} onChange={e => setShowAdvancedMaterials(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                <span>Customize Material for specific parts</span>
+              </label>
+              
+              {showAdvancedMaterials && (
+                <div className="space-y-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                      Shutter / Doors Board Material
+                    </label>
+                    <select
+                      value={shutterBoardId}
+                      onChange={(e) => setShutterBoardId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="default">Same as Carcass Board ({activeBoard.name})</option>
+                      {boards.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                      Back Panel Board Material (9mm)
+                    </label>
+                    <select
+                      value={backPanelBoardId}
+                      onChange={(e) => setBackPanelBoardId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="default">Standard 9mm PLPB Backing (₹35/sq.ft)</option>
+                      {boards.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, 9, quality)}/sq.ft)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                      Drawer Box Panels (9mm)
+                    </label>
+                    <select
+                      value={drawerBoxBoardId}
+                      onChange={(e) => setDrawerBoxBoardId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="default">Standard Drawer Panels</option>
+                      {boards.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, 9, quality)}/sq.ft)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                </div>
+              )}
+            </div>
+
 
             {/* Mica/Laminate Options */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1924,6 +2097,8 @@ export default function CustomStorageCalculator() {
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-100 font-semibold sticky top-0">
                     <th className="p-3">Panel Description</th>
                     <th className="p-3 text-right">Size (mm)</th>
+                    <th className="p-3 text-left">Board Material</th>
+                    <th className="p-3 text-left">Thickness</th>
                     <th className="p-3 text-center">Qty</th>
                     <th className="p-3 text-right">Total Area (Sq.Ft)</th>
                     <th className="p-3 text-right">Rate Used</th>
@@ -1935,6 +2110,39 @@ export default function CustomStorageCalculator() {
                     <tr key={i} className="hover:bg-gray-50/55 transition-colors">
                       <td className="p-3 font-sans font-medium text-gray-900">{p.label}</td>
                       <td className="p-3 text-right">{p.w} x {p.l}</td>
+                      <td className="p-3 text-left">
+                        <select
+                          value={pieceOverrides[p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')] || 'default'}
+                          onChange={(e) => setPieceOverrides({...pieceOverrides, [p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')]: e.target.value})}
+                          className="px-2 py-1 bg-white border border-gray-200 rounded text-xs outline-none focus:border-indigo-500 w-32"
+                        >
+                          <option value="default">Default</option>
+                          {boards.map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-3 text-left">
+                        <select
+                          value={thicknessOverrides[p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')] || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val) {
+                                setThicknessOverrides({...thicknessOverrides, [p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')]: Number(val)});
+                            } else {
+                                const newOver = {...thicknessOverrides};
+                                delete newOver[p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')];
+                                setThicknessOverrides(newOver);
+                            }
+                          }}
+                          className="px-2 py-1 bg-white border border-gray-200 rounded text-xs outline-none focus:border-indigo-500 w-20"
+                        >
+                          <option value="">Default</option>
+                          {[6, 9, 12, 18, 25].map(t => (
+                            <option key={t} value={t}>{t} mm</option>
+                          ))}
+                        </select>
+                      </td>
                       <td className="p-3 text-center font-bold">{Number.isInteger(p.qty) ? p.qty : Number(p.qty).toFixed(2)}</td>
                       <td className="p-3 text-right">{(p.totalSqFt).toFixed(2)} <span className="text-[10px] text-gray-400">inc. 15%</span></td>
                       <td className="p-3 text-right">Rs {p.rate.toFixed(0)}</td>

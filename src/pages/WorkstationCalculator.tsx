@@ -124,10 +124,8 @@ export const getTopRate = (
 };
 
 const LEGS = [
-  { id: "board", name: "Board/Wooden Legs", cost: 0 }, // Cost derived from board material
-  { id: "metal_loop", name: "Metal Loop Legs", cost: 1500 }, // per leg
-  { id: "metal_c", name: "Metal C-Legs", cost: 1800 }, // per leg
-  { id: "metal_leg", name: "Metal Leg", cost: 0 },
+  { id: "board", name: "Board/Wooden Legs", cost: 0 },
+  { id: "metal_leg", name: "Metal Legs", cost: 1500 },
 ];
 
 const SCREENS = [
@@ -1577,6 +1575,7 @@ export default function WorkstationCalculator() {
                       >
                         <option value="straight">Straight Leg</option>
                         <option value="u_shape">U-Shape Leg</option>
+                        <option value="angular">Angular Leg</option>
                       </select>
                     </div>
                   </>
@@ -1663,10 +1662,7 @@ export default function WorkstationCalculator() {
                   className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
                 >
                   <option value="none">None</option>
-                  <option value="grommet">
-                    PVC Grommets (x2 for ₹{GROMMET_COST * 2})
-                  </option>
-                  <option value="raceway">
+                                    <option value="raceway">
                     Aluminum Flap Box (₹{WIRE_MANAGER_COST})
                   </option>
                   <option value="wire_raceway">
@@ -2053,8 +2049,7 @@ export default function WorkstationCalculator() {
                   className="block w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none"
                 >
                   <option value="none">None</option>
-                  <option value="grommet">PVC Grommets</option>
-                  <option value="raceway">Alu Flap Raceway</option>
+                                    <option value="raceway">Alu Flap Raceway</option>
                   <option value="wire_raceway">Metal Wire Raceway</option>
                 </select>
               </div>

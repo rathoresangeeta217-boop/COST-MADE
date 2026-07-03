@@ -100,7 +100,6 @@ export default function Products() {
       { Category: 'Legs', Material: 'Metal C-Legs', 'Thickness': '-', 'Rate (Rs)': 1800, Unit: 'per leg' },
 
       { Category: 'Wire Management', Material: 'Aluminum Flap Box', 'Thickness': '-', 'Rate (Rs)': 450, Unit: 'per piece' },
-      { Category: 'Wire Management', Material: 'PVC Grommet', 'Thickness': '-', 'Rate (Rs)': 100, Unit: 'per piece' },
 
       { Category: 'Edge Banding', Material: '0.8mm Edge Banding', 'Thickness': '-', 'Rate (Rs)': 13, Unit: 'per meter' },
       { Category: 'Edge Banding', Material: '2mm Edge Banding', 'Thickness': '-', 'Rate (Rs)': 28, Unit: 'per meter' },
