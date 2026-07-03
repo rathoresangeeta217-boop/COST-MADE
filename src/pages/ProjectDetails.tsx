@@ -109,9 +109,23 @@ export default function ProjectDetails() {
       // Try to extract board ID from item name e.g., "Workstation 900x600 (18mm_particle_board)"
       let defaultThickness = '18mm';
       let defaultMaterial = 'Board';
+      
+      if (item.config?.boardThickness) {
+          defaultThickness = item.config.boardThickness + 'mm';
+      }
+      if (item.config?.boardId) {
+          const bId = item.config.boardId.toLowerCase();
+          if (bId.includes('particle') || bId.includes('plpb')) defaultMaterial = 'Particle Board';
+          else if (bId.includes('mdf')) defaultMaterial = 'MDF';
+          else if (bId.includes('plywood') || bId.includes('ply')) defaultMaterial = 'Plywood';
+          else if (bId.includes('hdhmr')) defaultMaterial = 'HDHMR';
+      }
+
       const nameMatch = item.name.match(/\(([\w_]+)\)/);
-      if (nameMatch) {
+      
+      if (nameMatch && !item.config?.boardThickness) {
         const boardId = nameMatch[1];
+
         if (boardId.includes('25mm')) defaultThickness = '25mm';
         else if (boardId.includes('12mm')) defaultThickness = '12mm';
         else if (boardId.includes('9mm')) defaultThickness = '9mm';

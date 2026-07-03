@@ -2803,6 +2803,61 @@ export default function CustomStorageCalculator() {
                     </g>
                   );
                 })()}
+                {/* Dragging Measurements Overlay */}
+                {dragState && dragState.isDragging && (
+                  (() => {
+                    const bay = bays[dragState.bayIdx];
+                    if (dragState.type === 'h') {
+                       const offsetRel = bay.shelfOffsets?.[dragState.idx] ?? ((dragState.idx + 1) / ((bay.shelves || 0) + 1));
+                       const yInBay = offsetRel * (dragState.bayH - 4);
+                       const yAbsolute = dragState.bayY + 2 + yInBay;
+                       
+                       const prevOffset = dragState.idx > 0 ? (bay.shelfOffsets?.[dragState.idx - 1] ?? (dragState.idx / ((bay.shelves || 0) + 1))) : 0;
+                       const nextOffset = dragState.idx < (bay.shelves || 0) - 1 ? (bay.shelfOffsets?.[dragState.idx + 1] ?? ((dragState.idx + 2) / ((bay.shelves || 0) + 1))) : 1;
+                       
+                       const topH = (offsetRel - prevOffset) * (dragState.bayH - 4);
+                       const bottomH = (nextOffset - offsetRel) * (dragState.bayH - 4);
+
+                       return (
+                         <g pointerEvents="none">
+                           <line x1={dragState.bayX} x2={dragState.bayX + dragState.bayW} y1={yAbsolute} y2={yAbsolute} stroke="#10b981" strokeWidth="2" />
+                           
+                           {/* Top measurement */}
+                           <rect x={dragState.bayX + dragState.bayW / 2 - 30} y={yAbsolute - topH / 2 - 12} width="60" height="24" fill="#10b981" rx="12" />
+                           <text x={dragState.bayX + dragState.bayW / 2} y={yAbsolute - topH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(topH)}mm</text>
+
+                           {/* Bottom measurement */}
+                           <rect x={dragState.bayX + dragState.bayW / 2 - 30} y={yAbsolute + bottomH / 2 - 12} width="60" height="24" fill="#10b981" rx="12" />
+                           <text x={dragState.bayX + dragState.bayW / 2} y={yAbsolute + bottomH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(bottomH)}mm</text>
+                         </g>
+                       );
+                    } else {
+                       const offsetRel = bay.verticalShelfOffsets?.[dragState.idx] ?? ((dragState.idx + 1) / ((bay.verticalShelves || 0) + 1));
+                       const xInBay = offsetRel * (dragState.bayW - 4);
+                       const xAbsolute = dragState.bayX + 2 + xInBay;
+                       
+                       const prevOffset = dragState.idx > 0 ? (bay.verticalShelfOffsets?.[dragState.idx - 1] ?? (dragState.idx / ((bay.verticalShelves || 0) + 1))) : 0;
+                       const nextOffset = dragState.idx < (bay.verticalShelves || 0) - 1 ? (bay.verticalShelfOffsets?.[dragState.idx + 1] ?? ((dragState.idx + 2) / ((bay.verticalShelves || 0) + 1))) : 1;
+
+                       const leftW = (offsetRel - prevOffset) * (dragState.bayW - 4);
+                       const rightW = (nextOffset - offsetRel) * (dragState.bayW - 4);
+
+                       return (
+                         <g pointerEvents="none">
+                           <line y1={dragState.bayY} y2={dragState.bayY + dragState.bayH} x1={xAbsolute} x2={xAbsolute} stroke="#10b981" strokeWidth="2" />
+                           
+                           {/* Left measurement */}
+                           <rect x={xAbsolute - leftW / 2 - 30} y={dragState.bayY + dragState.bayH / 2 - 12} width="60" height="24" fill="#10b981" rx="12" />
+                           <text x={xAbsolute - leftW / 2} y={dragState.bayY + dragState.bayH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(leftW)}mm</text>
+
+                           {/* Right measurement */}
+                           <rect x={xAbsolute + rightW / 2 - 30} y={dragState.bayY + dragState.bayH / 2 - 12} width="60" height="24" fill="#10b981" rx="12" />
+                           <text x={xAbsolute + rightW / 2} y={dragState.bayY + dragState.bayH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(rightW)}mm</text>
+                         </g>
+                       );
+                    }
+                  })()
+                )}
               </svg>
               </div>
             </div>
