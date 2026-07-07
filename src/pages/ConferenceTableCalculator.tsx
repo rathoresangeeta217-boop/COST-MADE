@@ -151,6 +151,10 @@ export function calculateConferenceCost({
   wireManagement,
   addLeatherlite,
   legCountInput,
+  includeModesty,
+  modestyType,
+  customModestyHeight,
+  modestyFinish,
 }: any) {
   const boards = getBoards(quality);
   const board = boards.find((b) => b.id === boardId)!;
@@ -170,6 +174,29 @@ export function calculateConferenceCost({
   ];
 
   let bCostTotal = topCost;
+
+
+  // Modesty Calculation
+  if (includeModesty) {
+      let modestyHeightMm = 450;
+      if (modestyType === "standard") modestyHeightMm = 715;
+      else if (modestyType === "short") modestyHeightMm = 600;
+      else if (modestyType === "shorter") modestyHeightMm = 300;
+      else if (modestyType === "custom") modestyHeightMm = customModestyHeight || 300;
+
+      const modestyAreaSqMm = mainWidth * modestyHeightMm;
+      let modestyRate = board.costPerSqFt;
+      if (modestyFinish === "fluted") modestyRate += 100;
+      
+      const modestyAreaSqFt = modestyAreaSqMm / 90000;
+      const modestyCost = modestyAreaSqFt * modestyRate;
+
+      bDetails.push({
+          label: `Modesty Panel (${modestyFinish}) - ${mainWidth}x${modestyHeightMm}mm (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
+          cost: Math.round(modestyCost),
+      });
+      bCostTotal += modestyCost;
+  }
 
   // Legs Calculation
   let legCount = legCountInput || (mainWidth >= 2400 ? 3 : 2);
@@ -215,9 +242,19 @@ export function calculateConferenceCost({
       let legName = "";
 
       if (legType === "board") {
-          areaPerLegSqMm = mainDepth * height;
-          effectiveLegCount = 2;
-          legName = `2x Board Slab Legs (${mainDepth}mm x ${height}mm)`;
+          const outerLegArea = mainDepth * height * 2;
+          const middleLegDepth = Math.max(400, mainDepth - 400); // Shorter middle leg
+          const middleLegCount = Math.max(0, legCount - 2);
+          const middleLegArea = middleLegDepth * height * middleLegCount;
+          
+          areaPerLegSqMm = (outerLegArea + middleLegArea) / legCount;
+          effectiveLegCount = legCount;
+          
+          if (middleLegCount > 0) {
+              legName = `2x Board Slab Legs (${mainDepth}mm D), ${middleLegCount}x Middle Board Legs (${middleLegDepth}mm D) x ${height}mm H`;
+          } else {
+              legName = `2x Board Slab Legs (${mainDepth}mm x ${height}mm)`;
+          }
       } else if (legType === "box_plain") {
           const boxWidth = Math.max(0, mainWidth - 600);
           const boxDepth = Math.max(0, mainDepth - 600);
@@ -353,6 +390,10 @@ export default function ConferenceTableCalculator() {
   const [wireManagement, setWireManagement] = useState<string>("none");
   const [addLeatherlite, setAddLeatherlite] = useState<boolean>(false);
   const [legCountInput, setLegCountInput] = useState<number>(0);
+  const [includeModesty, setIncludeModesty] = useState<boolean>(false);
+  const [modestyType, setModestyType] = useState<string>("standard");
+  const [customModestyHeight, setCustomModestyHeight] = useState<number>(400);
+  const [modestyFinish, setModestyFinish] = useState<string>("plain");
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
 
   useEffect(() => {
@@ -367,6 +408,10 @@ export default function ConferenceTableCalculator() {
       setWireManagement(editItem.config.wireManagement || "none");
       setAddLeatherlite(editItem.config.addLeatherlite || false);
       setLegCountInput(editItem.config.legCountInput || 0);
+      setIncludeModesty(editItem.config.includeModesty || false);
+      setModestyType(editItem.config.modestyType || "standard");
+      setCustomModestyHeight(editItem.config.customModestyHeight || 400);
+      setModestyFinish(editItem.config.modestyFinish || "plain");
     }
   }, [editItem]);
 
@@ -391,6 +436,10 @@ export default function ConferenceTableCalculator() {
       wireManagement,
       addLeatherlite,
       legCountInput,
+      includeModesty,
+      modestyType,
+      customModestyHeight,
+      modestyFinish,
     });
   }, [
     mainWidth,
@@ -403,6 +452,10 @@ export default function ConferenceTableCalculator() {
     wireManagement,
     addLeatherlite,
     legCountInput,
+    includeModesty,
+    modestyType,
+    customModestyHeight,
+    modestyFinish,
   ]);
 
     const downloadPDF = () => {
@@ -422,6 +475,8 @@ export default function ConferenceTableCalculator() {
         ["Table Top Thickness", `${topThickness} mm`],
         ["Board Material", `${getBoards(quality).find((b) => b.id === boardId)?.name}`],
         ["Leg Type", legType.replace("_", " ").toUpperCase()],
+      ["Modesty Panel", includeModesty ? `Yes - ${modestyType} (${modestyFinish})` : "No"],
+        ["Modesty Panel", includeModesty ? `Yes - ${modestyType} (${modestyFinish})` : "No"],
         ["Wire Management", wireManagement.replace("_", " ").toUpperCase()],
         ["Leatherlite Add-on", addLeatherlite ? "Yes" : "No"],
       ],
@@ -472,6 +527,7 @@ export default function ConferenceTableCalculator() {
       ["Table Top Thickness", `${topThickness} mm`],
       ["Board Material", `${getBoards(quality).find((b) => b.id === boardId)?.name}`],
       ["Leg Type", legType.replace("_", " ").toUpperCase()],
+      ["Modesty Panel", includeModesty ? `Yes - ${modestyType} (${modestyFinish})` : "No"],
       ["Wire Management", wireManagement.replace("_", " ").toUpperCase()],
       ["Leatherlite Add-on", addLeatherlite ? "Yes" : "No"],
     ];
@@ -560,6 +616,10 @@ Studio lighting, 8k resolution, photorealistic, architectural digest style.`;
         wireManagement,
         addLeatherlite,
         legCountInput,
+        includeModesty,
+        modestyType,
+        customModestyHeight,
+        modestyFinish,
       },
       costSummary,
     };
@@ -723,7 +783,80 @@ Studio lighting, 8k resolution, photorealistic, architectural digest style.`;
               </div>
             </section>
 
-                        {/* Wire Management */}
+            {/* Modesty Panel */}
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <FileBox className="w-5 h-5 text-indigo-500" />
+                Modesty Panel
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl bg-gray-50/50">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-indigo-100 rounded-lg">
+                        <LayoutGrid className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Include Modesty</p>
+                        <p className="text-xs text-gray-500">Front privacy panel</p>
+                      </div>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      checked={includeModesty} 
+                      onChange={(e) => setIncludeModesty(e.target.checked)}
+                      className="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {includeModesty && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Size / Height</label>
+                      <select
+                        value={modestyType}
+                        onChange={(e) => setModestyType(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                      >
+                        <option value="standard">Standard (715mm)</option>
+                        <option value="short">Short (600mm)</option>
+                        <option value="shorter">Shorter (300mm)</option>
+                        <option value="custom">Custom Size</option>
+                      </select>
+                    </div>
+
+                    {modestyType === "custom" && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                        <label className="block text-sm font-medium text-gray-700">Custom Height (mm)</label>
+                        <input
+                          type="number"
+                          value={customModestyHeight}
+                          onChange={(e) => setCustomModestyHeight(Number(e.target.value))}
+                          className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                          min="100"
+                          max={height - 25}
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Finish</label>
+                      <select
+                        value={modestyFinish}
+                        onChange={(e) => setModestyFinish(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                      >
+                        <option value="plain">Plain</option>
+                        <option value="fluted">Fluted</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Wire Management */}
             <section>
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <LayoutGrid className="w-5 h-5 text-indigo-500" />
