@@ -167,6 +167,7 @@ export function calculateLShapeCost({
   metalLegPipeSize,
   includeModesty,
   modestyType = "standard",
+  modestyFinish = "plain",
   metalModestyType = "plain",
   wireManagement,
   includePedestal,
@@ -540,7 +541,8 @@ export function calculateLShapeCost({
     const bufferCost = numLegs * 7;
     const nutCost = numLegs * 5;
     const butterflyCost = numLegs * 2 * 12.5;
-    const accessoriesCost = bufferCost + nutCost + butterflyCost;
+    const clampCost = numLegs * 2 * 10;
+    const accessoriesCost = bufferCost + nutCost + butterflyCost + clampCost;
 
     hCost += costVerticals + cost40x20 + powderCoatingCost + accessoriesCost;
 
@@ -566,9 +568,9 @@ export function calculateLShapeCost({
       cost: Math.round(powderCoatingCost),
     });
     hDetails.push({
-      label: "Leg Accessories (Buffer, Nut, Butterfly)",
+      label: "Leg Accessories (Buffer, Nut, Butterfly, Clamp)",
       qty: numLegs,
-      unitPrice: 37, // 7 + 5 + (2 * 12.5)
+      unitPrice: 57, // 7 + 5 + (2 * 12.5) + (2 * 10)
       unitLabel: "leg set",
       cost: Math.round(accessoriesCost),
     });
@@ -605,12 +607,12 @@ export function calculateLShapeCost({
     const modestyAreaSqFt = modestyAreaSqMm / 90000;
 
     if (legId === "board") {
-      modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate);
+      modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate) * (modestyFinish === "fluted" ? 3 : 1);
       bCostTotal += modCost;
       bDetails.push({
         label: includeReturnStorage
-          ? `All Table Modesty Panels (${mainModestyWidth}x${modestyHeight}, ${returnModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`
-          : `Main Modesty Panel (${mainModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
+          ? `All Table Modesty Panels (${modestyFinish}) (${mainModestyWidth}x${modestyHeight}, ${returnModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`
+          : `Main Modesty Panel (${modestyFinish}) (${mainModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
         cost: Math.round(modCost),
       });
 
@@ -850,11 +852,12 @@ export function calculateLShapeCost({
 
   // Add Fixed Hardware (Patti & Buffer)
   if (legId !== "metal_leg") {
-    const pattiTotal = LPATTI_QTY * LPATTI_COST;
+    const pattiQty = Math.ceil(topPerimeterM * 3.28084 * 2); // 2 L-Pattis per foot of top perimeter
+    const pattiTotal = pattiQty * LPATTI_COST;
     hCost += pattiTotal;
     hDetails.push({
       label: "L Patti",
-      qty: LPATTI_QTY,
+      qty: pattiQty,
       unitPrice: LPATTI_COST,
       unitLabel: "pcs",
       cost: pattiTotal,
@@ -1608,6 +1611,7 @@ export default function LShapeTableCalculator() {
         if (c.metalLegPipeSize !== undefined) setMetalLegPipeSize(c.metalLegPipeSize);
         if (c.includeModesty !== undefined) setIncludeModesty(c.includeModesty);
         if (c.modestyType !== undefined) setModestyType(c.modestyType);
+        if (c.modestyFinish !== undefined) setModestyFinish(c.modestyFinish);
         if (c.metalModestyType !== undefined) setMetalModestyType(c.metalModestyType);
         if (c.wireManagement !== undefined) setWireManagement(c.wireManagement);
         if (c.includePedestal !== undefined) setIncludePedestal(c.includePedestal);
@@ -1635,6 +1639,7 @@ export default function LShapeTableCalculator() {
 
   const [includeModesty, setIncludeModesty] = useState<boolean>(true);
   const [modestyType, setModestyType] = useState<string>("standard");
+  const [modestyFinish, setModestyFinish] = useState<string>("plain");
   const [metalModestyType, setMetalModestyType] = useState<string>("plain");
   const [wireManagement, setWireManagement] = useState<string>("raceway"); // 'raceway', 'none'
   const [includePedestal, setIncludePedestal] = useState<boolean>(true);
@@ -1712,6 +1717,7 @@ export default function LShapeTableCalculator() {
       metalLegPipeSize,
       includeModesty,
       modestyType,
+      modestyFinish,
       metalModestyType,
       wireManagement,
       includePedestal,
@@ -1741,7 +1747,8 @@ export default function LShapeTableCalculator() {
     metalLegPipeSize,
     includeModesty,
     modestyType,
-    metalModestyType,
+      modestyFinish,
+      metalModestyType,
     wireManagement,
     includePedestal,
     includeDrawer,
@@ -1809,10 +1816,10 @@ export default function LShapeTableCalculator() {
     const pedestalDesc = includePedestal ? ` It has a 3-drawer side pedestal attached.` : "";
     const cpuDesc = cpuStandType !== "none" ? ` The desk includes a CPU ${cpuStandType === "trolley" ? "trolley on wheels" : "mount bracket"}.` : "";
     
-    let modestyString = "a front modesty panel";
+    let modestyString = `a ${modestyFinish} front modesty panel`;
     if (legId === "board") {
-      if (modestyType === "short") modestyString = "a short (600mm) front modesty panel";
-      if (modestyType === "shorter") modestyString = "a very short (300mm) front modesty panel";
+      if (modestyType === "short") modestyString = `a short (600mm) ${modestyFinish} front modesty panel`;
+      if (modestyType === "shorter") modestyString = `a very short (300mm) ${modestyFinish} front modesty panel`;
     }
     const modestyDesc = includeModesty ? ` It includes ${modestyString}.` : " It has an open back design with no modesty panel.";
     
@@ -2256,6 +2263,7 @@ export default function LShapeTableCalculator() {
                 metalLegPipeSize: "40x40",
                 includeModesty: exportIncludeModesty,
                 modestyType: exportModestyType,
+                modestyFinish: "plain",
                 metalModestyType: "plain",
                 wireManagement: exportWireManagement,
                 includePedestal: exportIncludePedestal,
@@ -2301,7 +2309,8 @@ export default function LShapeTableCalculator() {
                   metalLegPipeSize: "40x40",
                   includeModesty: exportIncludeModesty,
                   modestyType: exportModestyType,
-                  metalModestyType: "plain",
+                modestyFinish: "plain",
+                metalModestyType: "plain",
                   wireManagement: exportWireManagement,
                   includePedestal: exportIncludePedestal,
                   includeDrawer,
@@ -2962,7 +2971,7 @@ export default function LShapeTableCalculator() {
                     </label>
 
                     {includeModesty && legId === "board" && (
-                      <div className="ml-8 mt-1">
+                      <div className="ml-8 mt-1 flex gap-2">
                         <select
                           value={modestyType}
                           onChange={(e) => setModestyType(e.target.value)}
@@ -2971,6 +2980,14 @@ export default function LShapeTableCalculator() {
                           <option value="standard">Standard (715 mm)</option>
                           <option value="short">Short (600 mm)</option>
                           <option value="shorter">Shorter (300 mm)</option>
+                        </select>
+                        <select
+                          value={modestyFinish}
+                          onChange={(e) => setModestyFinish(e.target.value)}
+                          className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="plain">Plain</option>
+                          <option value="fluted">Fluted</option>
                         </select>
                       </div>
                     )}
@@ -3189,7 +3206,7 @@ export default function LShapeTableCalculator() {
                           isCustomSize, mainWidth, mainDepth, returnWidth, returnDepth,
                           height, returnHeight, topThickness, quality, topMaterialCategory,
                           marbleTypeId, boardId, innerMica, outerMica, legId, boardLegType,
-                          metalLegStyle, metalLegPipeSize, includeModesty, modestyType,
+                          metalLegStyle, metalLegPipeSize, includeModesty, modestyType, modestyFinish,
                           metalModestyType, wireManagement, includePedestal, includeDrawer,
                           drawerCount, singleDrawerType, cpuStandType, includeReturnStorage,
                           returnStorageType

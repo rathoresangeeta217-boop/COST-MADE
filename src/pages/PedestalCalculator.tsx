@@ -132,6 +132,7 @@ const LABOR_COST = 500;
 const PACKING_COST = 300;
 const TOOLING_COST = 100;
 const PROFIT_PERCENTAGE = 0.25;
+const LPATTI_COST = 10;
 
 const PEDESTAL_TYPES = [
   {
@@ -415,6 +416,17 @@ export function calculatePedestalCost({
 
   let totalEbCost = 0;
   let totalEbMeter = 0;
+
+  const topPerimeterM = (width * 2 + depth * 2) / 1000;
+  const pattiQty = Math.ceil(topPerimeterM * 3.28084 * 2); // 2 L-Pattis per foot of top perimeter
+  hCost += pattiQty * LPATTI_COST;
+  hardwareDetails.push({
+    label: "L Patti",
+    qty: pattiQty,
+    unitPrice: LPATTI_COST,
+    unitLabel: "pcs",
+    cost: pattiQty * LPATTI_COST,
+  });
 
   pieces.forEach((p) => {
     if (p.ebMm && p.ebMm > 0) {

@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface ProjectItem {
   id: string;
-  productType: 'pedestal' | 'workstation' | 'l-shape-table' | 'custom-storage';
+  productType: 'pedestal' | 'workstation' | 'l-shape-table' | 'conference-table' | 'custom-storage';
   name: string;
   quantity?: number;
   config: any; // Raw configuration state

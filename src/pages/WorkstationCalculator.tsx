@@ -131,13 +131,13 @@ const LEGS = [
 const SCREENS = [
   { id: "none", name: "None", costPerSqFt: 0 },
   { id: "board", name: "Wooden Partition", costPerSqFt: 0 }, // Cost derived from board material
-  { id: "acrylic", name: "Acrylic Sheet", costPerSqFt: 180 },
-  { id: "aluminium", name: "Aluminium Framing", costPerSqFt: 300 },
+  { id: "acrylic", name: "Acrylic Sheet", costPerSqFt: 350 },
+  { id: "aluminium", name: "Aluminium Framing", costPerSqFt: 450 },
   { id: "pinup", name: "Pin Up Board", costPerSqFt: 150 },
-  { id: "magnetic_glass", name: "Magnetic Glass", costPerSqFt: 450 },
+  { id: "magnetic_glass", name: "Magnetic Glass", costPerSqFt: 750 },
 ];
 
-const WIRE_MANAGER_COST = 450; // Aluminum flap box
+const FLAP_BOX_RATES = [300,450,800,1100,1250,1400,1500,1750,1800,2400];
 const GROMMET_COST = 100; // PVC grommet
 const METAL_RACEWAY_COST = 600; // Metal Wire Raceway Tray
 const BRACKET_COST = 80; // Cost per screen bracket
@@ -175,13 +175,16 @@ export function calculateWorkstationCost({
   metalLegPipeSize,
   screenId,
   screenHeight,
+  screenLayout = "end_to_end",
   sideScreenId = "none",
   sideScreenHeight = 300,
   sideScreenCoverage = "full",
   includeModesty,
   modestyType = "standard",
+  modestyFinish = "plain",
   cncDesignOnModesty = false,
   wireManagement,
+  flapBoxRate = 450,
   includePedestal,
   includeDrawer = false,
   drawerCount = 1,
@@ -203,6 +206,8 @@ export function calculateWorkstationCost({
   const innerRate = innerMica === "0.8" ? 35 : innerMica === "1.0" ? 56 : 0;
   const outerRate = outerMica === "0.8" ? 35 : outerMica === "1.0" ? 56 : 0;
   const totalMicaRate = innerRate + outerRate;
+
+  const effectiveScreenWidth = screenLayout === "in_blocks" ? Math.max(0, width - 100) : width;
 
   // Workstation Layout Math
   const rows = layout === "back_to_back" ? 2 : 1;
@@ -331,7 +336,8 @@ export function calculateWorkstationCost({
     const bufferCost = numLegs * 7;
     const nutCost = numLegs * 5;
     const butterflyCost = numLegs * 2 * 12.5;
-    const accessoriesCost = bufferCost + nutCost + butterflyCost;
+    const clampCost = numLegs * 2 * 10;
+    const accessoriesCost = bufferCost + nutCost + butterflyCost + clampCost;
 
     hCost += costVerticals + cost40x20 + powderCoatingCost + accessoriesCost;
 
@@ -357,9 +363,9 @@ export function calculateWorkstationCost({
       cost: Math.round(powderCoatingCost),
     });
     hDetails.push({
-      label: "Leg Accessories (Buffer, Nut, Butterfly)",
+      label: "Leg Accessories (Buffer, Nut, Butterfly, Clamp)",
       qty: numLegs,
-      unitPrice: 37, 
+      unitPrice: 57, 
       unitLabel: "leg set",
       cost: Math.round(accessoriesCost),
     });
@@ -392,10 +398,10 @@ export function calculateWorkstationCost({
     const modestyAreaSqFt = modestyAreaSqMm / 90000;
 
     if (legId === "board") {
-      modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate);
+      modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate) * (modestyFinish === "fluted" ? 3 : 1);
       bCostTotal += modCost;
       bDetails.push({
-        label: `Modesty Panel x${actualPersons} (${modestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
+        label: `Modesty Panel (${modestyFinish}) x${actualPersons} (${modestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
         cost: Math.round(modCost),
       });
 
@@ -439,7 +445,7 @@ export function calculateWorkstationCost({
   if (screenId !== "none") {
     // One screen per column
     const screenCount = cols;
-    const sAreaSqFt = (width * screenHeight * screenCount) / 90000;
+    const sAreaSqFt = (effectiveScreenWidth * screenHeight * screenCount) / 90000;
     if (screenId === "board") {
       sCost = sAreaSqFt * (board.costPerSqFt + totalMicaRate);
       bCostTotal += sCost;
@@ -478,7 +484,7 @@ export function calculateWorkstationCost({
     }
 
     // Hardware for side screen
-    const sideBracketCount = (depth > 600 ? 3 : 2) * sideScreenCount;
+    const sideBracketCount = (effectiveSideDepth > 600 ? 3 : 2) * sideScreenCount;
     const sideBracketTotal = sideBracketCount * BRACKET_COST;
     hCost += sideBracketTotal;
     hDetails.push({
@@ -495,12 +501,12 @@ export function calculateWorkstationCost({
 
   // 5. Wire Management
   if (wireManagement === "raceway") {
-    const cost = WIRE_MANAGER_COST * actualPersons;
+    const cost = flapBoxRate * actualPersons;
     hCost += cost;
     hDetails.push({
-      label: "Alu Flap Raceway",
+      label: "Alu Flap Box",
       qty: actualPersons,
-      unitPrice: WIRE_MANAGER_COST,
+      unitPrice: flapBoxRate,
       unitLabel: "Set",
       cost: cost,
     });
@@ -631,7 +637,7 @@ export function calculateWorkstationCost({
 
   // Add Fixed Hardware (Patti & Buffer)
   if (legId !== "metal_leg") {
-    const pattiQty = LPATTI_QTY * legFrames; // Assume L-Pattis connect leg frames to top
+    const pattiQty = Math.ceil(topPerimeterM * 3.28084 * 2); // 2 L-Pattis per foot of top perimeter
     const pattiTotal = pattiQty * LPATTI_COST;
     hCost += pattiTotal;
     hDetails.push({
@@ -679,7 +685,7 @@ export function calculateWorkstationCost({
               : 715
           : 450)
       : 0) +
-    (screenId === "board" ? width * screenHeight * cols : 0) +
+    (screenId === "board" ? effectiveScreenWidth * screenHeight * cols : 0) +
     (sideScreenId === "board" ? (sideScreenCoverage === "half" ? depth / 2 : depth) * sideScreenHeight * actualPersons : 0);
 
   if (includeDrawer) {
@@ -781,14 +787,17 @@ export default function WorkstationCalculator() {
   const [metalLegStyle, setMetalLegStyle] = useState<string>("straight"); // 'straight', 'u_shape'
   const [metalLegPipeSize, setMetalLegPipeSize] = useState<string>("40x40"); // '40x40', '50x50'
   const [screenId, setScreenId] = useState<string>("none");
+  const [screenLayout, setScreenLayout] = useState<string>("end_to_end");
   const [screenHeight, setScreenHeight] = useState<number>(300); // above desk height mm
   const [sideScreenId, setSideScreenId] = useState<string>("none");
   const [sideScreenHeight, setSideScreenHeight] = useState<number>(300); // above desk height mm
   const [sideScreenCoverage, setSideScreenCoverage] = useState<string>("full"); // 'full', 'half'
   const [includeModesty, setIncludeModesty] = useState<boolean>(true);
-  const [modestyType, setModestyType] = useState<string>("standard"); // 'standard', 'short', 'shorter'
+  const [modestyType, setModestyType] = useState<string>("standard");
+  const [modestyFinish, setModestyFinish] = useState<string>("plain"); // 'standard', 'short', 'shorter'
   const [cncDesignOnModesty, setCncDesignOnModesty] = useState<boolean>(false);
   const [wireManagement, setWireManagement] = useState<string>("raceway"); // 'grommet', 'raceway', 'none'
+  const [flapBoxRate, setFlapBoxRate] = useState<number>(450);
   const [includePedestal, setIncludePedestal] = useState<boolean>(false);
   const [includeDrawer, setIncludeDrawer] = useState<boolean>(false);
   const [drawerCount, setDrawerCount] = useState<number>(1);
@@ -818,14 +827,17 @@ export default function WorkstationCalculator() {
         if (c.metalLegStyle !== undefined) setMetalLegStyle(c.metalLegStyle);
         if (c.metalLegPipeSize !== undefined) setMetalLegPipeSize(c.metalLegPipeSize);
         if (c.screenId !== undefined) setScreenId(c.screenId);
+        if (c.screenLayout !== undefined) setScreenLayout(c.screenLayout);
         if (c.screenHeight !== undefined) setScreenHeight(c.screenHeight);
         if (c.sideScreenId !== undefined) setSideScreenId(c.sideScreenId);
         if (c.sideScreenHeight !== undefined) setSideScreenHeight(c.sideScreenHeight);
         if (c.sideScreenCoverage !== undefined) setSideScreenCoverage(c.sideScreenCoverage);
         if (c.includeModesty !== undefined) setIncludeModesty(c.includeModesty);
         if (c.modestyType !== undefined) setModestyType(c.modestyType);
+        if (c.modestyFinish !== undefined) setModestyFinish(c.modestyFinish);
         if (c.cncDesignOnModesty !== undefined) setCncDesignOnModesty(c.cncDesignOnModesty);
         if (c.wireManagement !== undefined) setWireManagement(c.wireManagement);
+        if (c.flapBoxRate !== undefined) setFlapBoxRate(c.flapBoxRate);
         if (c.includePedestal !== undefined) setIncludePedestal(c.includePedestal);
         if (c.includeDrawer !== undefined) setIncludeDrawer(c.includeDrawer);
         if (c.drawerCount !== undefined) setDrawerCount(c.drawerCount);
@@ -844,6 +856,7 @@ export default function WorkstationCalculator() {
   const [exportIncludePedestal, setExportIncludePedestal] = useState(false);
   const [exportWireManagement, setExportWireManagement] =
     useState<string>("none");
+  const [exportFlapBoxRate, setExportFlapBoxRate] = useState<number>(450);
   const [exportThickness, setExportThickness] = useState<string>("all");
   const [exportMaterial, setExportMaterial] = useState<string>("all");
   const [exportQuality, setExportQuality] = useState<string>("standard");
@@ -887,13 +900,16 @@ export default function WorkstationCalculator() {
       metalLegPipeSize,
       screenId,
       screenHeight,
+      screenLayout,
       sideScreenId,
       sideScreenHeight,
       sideScreenCoverage,
       includeModesty,
       modestyType,
+      modestyFinish,
       cncDesignOnModesty,
       wireManagement,
+      flapBoxRate,
       includeDrawer,
       drawerCount,
       singleDrawerType,
@@ -918,13 +934,16 @@ export default function WorkstationCalculator() {
     metalLegPipeSize,
     screenId,
     screenHeight,
+    screenLayout,
     sideScreenId,
     sideScreenHeight,
     sideScreenCoverage,
     includeModesty,
     modestyType,
-    cncDesignOnModesty,
+      modestyFinish,
+      cncDesignOnModesty,
     wireManagement,
+    flapBoxRate,
     includeDrawer,
     drawerCount,
     singleDrawerType,
@@ -964,10 +983,10 @@ export default function WorkstationCalculator() {
     const pedestalDesc = includePedestal ? ` It has a 3-drawer side pedestal attached.` : "";
     const cpuDesc = cpuStandType !== "none" ? ` The desk includes a CPU ${cpuStandType === "trolley" ? "trolley on wheels" : "mount bracket"}.` : "";
     
-    let modestyString = "a front modesty panel";
+    let modestyString = `a ${modestyFinish} front modesty panel`;
     if (legId === "board") {
-      if (modestyType === "short") modestyString = "a short (600mm) front modesty panel";
-      if (modestyType === "shorter") modestyString = "a very short (300mm) front modesty panel";
+      if (modestyType === "short") modestyString = `a short (600mm) ${modestyFinish} front modesty panel`;
+      if (modestyType === "shorter") modestyString = `a very short (300mm) ${modestyFinish} front modesty panel`;
     }
     const modestyDesc = includeModesty ? ` It includes ${modestyString}.` : " It has an open back design with no modesty panel.";
     
@@ -1020,7 +1039,7 @@ export default function WorkstationCalculator() {
     specBody.push(
       ["Understructure Wood", board.name],
       ["Understructure", legType.name],
-      ["Modesty Panel", includeModesty ? (cncDesignOnModesty ? "Included (CNC Design)" : "Included (Plain)") : "None"],
+      ["Modesty Panel", includeModesty ? (legId === "board" ? `Included (${modestyFinish})` : (cncDesignOnModesty ? "Included (CNC Design)" : "Included (Plain)")) : "None"],
       [
         "Front Partition",
         screenId !== "none"
@@ -1199,8 +1218,10 @@ export default function WorkstationCalculator() {
               sideScreenCoverage: "full",
               includeModesty: exportIncludeModesty,
               modestyType: exportModestyType,
+              modestyFinish: "plain",
               cncDesignOnModesty: false,
               wireManagement: exportWireManagement,
+              flapBoxRate: exportFlapBoxRate,
               includeDrawer,
               drawerCount,
               singleDrawerType,
@@ -1599,6 +1620,7 @@ export default function WorkstationCalculator() {
                     ))}
                   </select>
                   {screenId !== "none" && (
+                    <div className="flex flex-col gap-2 w-1/2">
                     <select
                       value={screenHeight}
                       onChange={(e) => setScreenHeight(Number(e.target.value))}
@@ -1608,6 +1630,15 @@ export default function WorkstationCalculator() {
                       <option value={400}>400 mm High</option>
                       <option value={450}>450 mm High</option>
                     </select>
+                    <select
+                        value={screenLayout}
+                        onChange={(e) => setScreenLayout(e.target.value)}
+                        className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
+                      >
+                        <option value="end_to_end">End to End (Full Length)</option>
+                        <option value="in_blocks">In Blocks (Less 100mm)</option>
+                      </select>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1695,7 +1726,7 @@ export default function WorkstationCalculator() {
                     </label>
 
                     {includeModesty && legId === "board" && (
-                      <div className="ml-8 mt-1">
+                      <div className="ml-8 mt-1 flex gap-2">
                         <select
                           value={modestyType}
                           onChange={(e) => setModestyType(e.target.value)}
@@ -1704,6 +1735,14 @@ export default function WorkstationCalculator() {
                           <option value="standard">Standard (715 mm)</option>
                           <option value="short">Short (600 mm)</option>
                           <option value="shorter">Shorter (300 mm)</option>
+                        </select>
+                        <select
+                          value={modestyFinish}
+                          onChange={(e) => setModestyFinish(e.target.value)}
+                          className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="plain">Plain</option>
+                          <option value="fluted">Fluted</option>
                         </select>
                       </div>
                     )}
@@ -1932,9 +1971,10 @@ export default function WorkstationCalculator() {
                         config: {
                           isCustomSize, width, depth, height, topThickness, quality,
                           topMaterialCategory, marbleTypeId, boardId, legId, boardLegType,
-                          metalLegStyle, metalLegPipeSize, screenId, screenHeight,
+                          metalLegStyle, metalLegPipeSize, screenId, screenHeight, screenLayout,
                           sideScreenId, sideScreenHeight, sideScreenCoverage,
-                          includeModesty, modestyType, cncDesignOnModesty, wireManagement,
+                          includeModesty, modestyType, modestyFinish, cncDesignOnModesty, wireManagement,
+ flapBoxRate,
                           includePedestal, includeDrawer, drawerCount, singleDrawerType,
                           cpuStandType, innerMica, outerMica
                         },

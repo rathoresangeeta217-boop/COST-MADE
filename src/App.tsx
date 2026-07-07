@@ -11,7 +11,9 @@ import ProjectDetails from './pages/ProjectDetails';
 import PedestalCalculator from './pages/PedestalCalculator';
 import WorkstationCalculator from './pages/WorkstationCalculator';
 import LShapeTableCalculator from './pages/LShapeTableCalculator';
+import ConferenceTableCalculator from './pages/ConferenceTableCalculator';
 import CustomStorageCalculator from './pages/CustomStorageCalculator';
+import PricingRules from './pages/PricingRules';
 import { AuthProvider } from './lib/AuthContext';
 
 export default function App() {
@@ -21,11 +23,13 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Home />} />
+            <Route path="rules" element={<PricingRules />} />
             <Route path="project/:projectId" element={<ProjectDetails />} />
             <Route path="project/:projectId/products" element={<Products />} />
             <Route path="project/:projectId/calculator/pedestal" element={<PedestalCalculator />} />
             <Route path="project/:projectId/calculator/workstation" element={<WorkstationCalculator />} />
             <Route path="project/:projectId/calculator/l-shape-table" element={<LShapeTableCalculator />} />
+            <Route path="project/:projectId/calculator/conference-table" element={<ConferenceTableCalculator />} />
             <Route path="project/:projectId/calculator/custom-storage" element={<CustomStorageCalculator />} />
           </Route>
         </Routes>

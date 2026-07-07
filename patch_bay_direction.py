@@ -177,7 +177,6 @@ const LABOR_PER_BAY_COST = 300;
 const PACKING_COST = 400;
 const TOOLING_COST = 150;
 const PROFIT_PERCENTAGE = 0.25;
-const LPATTI_COST = 10;
 
 interface ColumnConfig {
   style: "open" | "shutter_solid" | "shutter_glass" | "shutters_double" | "3_drawers" | "2_drawers" | "1_drawer" | "1_drawer_open" | "1_drawer_1_shutter" | "vertical_horizontal";
@@ -367,10 +366,8 @@ export default function CustomStorageCalculator() {
   const [showAdvancedMaterials, setShowAdvancedMaterials] = useState<boolean>(false);
   const [innerMica, setInnerMica] = useState<string>("none");
   const [outerMica, setOuterMica] = useState<string>("none");
-  const [numRows, setNumRows] = useState<number>(1);
+  const [bayDirection, setBayDirection] = useState<'vertical' | 'horizontal'>('vertical');
   const [numBays, setNumBays] = useState<number>(3);
-  const [colOffsets, setColOffsets] = useState<Record<number, number>>({});
-  const [rowOffsets, setRowOffsets] = useState<Record<number, number>>({});
   const [supportLegsCount, setSupportLegsCount] = useState<number>(4);
 
   // Column arrangements
@@ -413,11 +410,10 @@ export default function CustomStorageCalculator() {
     }
   }, [editItemId, projectId, projects]);
 
-  // Sync bays array size with numBays * numRows
+  // Sync bays array size with numBays
   useEffect(() => {
-    const totalBays = numBays * numRows;
-    if (bays.length < totalBays) {
-      const added: ColumnConfig[] = Array.from({ length: totalBays - bays.length }, () => ({
+    if (bays.length < numBays) {
+      const added: ColumnConfig[] = Array.from({ length: numBays - bays.length }, () => ({
         style: "open",
         shelves: 1,
         verticalShelves: 0,
@@ -427,8 +423,8 @@ export default function CustomStorageCalculator() {
         shutterHandle: true,
       }));
       setBays([...bays, ...added]);
-    } else if (bays.length > totalBays) {
-      setBays(bays.slice(0, totalBays));
+    } else if (bays.length > numBays) {
+      setBays(bays.slice(0, numBays));
     }
 
     // Set support legs count automatically based on width
@@ -437,7 +433,7 @@ export default function CustomStorageCalculator() {
     } else {
       setSupportLegsCount(4);
     }
-  }, [numBays, numRows, width]);
+  }, [numBays, width]);
 
   // Reset thickness when board or quality changes
   useEffect(() => {
@@ -498,7 +494,7 @@ export default function CustomStorageCalculator() {
 
     // Side Panels
     const sideH = Math.max(0, height - thickness * 2);
-    pieces.push({ label: "Side Panels", w: depth, l: sideH, qty: 2, ebMm: (sideH * 2 + depth) * 2 });
+    pieces.push({ label: "Side Panels", w: depth, l: baySideH, qty: 2, ebMm: (sideH * 2 + depth) * 2 });
 
     // Back Panel (Standard PLPB backing or matching ply/board, standard cost Rs 35/sqft)
     const bp = getCustomMat('back', 35, ' (9mm PLPB Backing)');
@@ -511,64 +507,22 @@ export default function CustomStorageCalculator() {
       ebMm: 0,
     });
 
-    // Helpers for offsets
-    const getColOffset = (idx: number, total: number) => colOffsets[idx] ?? ((idx + 1) / total);
-    const getRowOffset = (idx: number, total: number) => rowOffsets[idx] ?? ((idx + 1) / total);
-    
-    // Inside dimensions for columns
+    const isHoriz = bayDirection === 'horizontal';
     const numPartitions = numBays - 1;
-    const innerWidth = Math.max(0, width - thickness * 2);
-    const totalPartitionThickness = numPartitions * thickness;
-    
-    const numHPartitions = numRows - 1;
-    const totalHPartitionThickness = numHPartitions * thickness;
-
-    // Helper to get bayWidth
-    const getColWidth = (c: number) => {
-        const prevOffset = c > 0 ? getColOffset(c - 1, numBays) : 0;
-        const nextOffset = c < numBays - 1 ? getColOffset(c, numBays) : 1;
-        const span = nextOffset - prevOffset;
-        return Math.max(0, (innerWidth - totalPartitionThickness) * span);
-    };
-
-    // Helper to get baySideH
-    const getRowHeight = (r: number) => {
-        const prevOffset = r > 0 ? getRowOffset(r - 1, numRows) : 0;
-        const nextOffset = r < numRows - 1 ? getRowOffset(r, numRows) : 1;
-        const span = nextOffset - prevOffset;
-        return Math.max(0, (sideH - totalHPartitionThickness) * span);
-    };
-
-    // Vertical Partitions
     if (numPartitions > 0) {
       pieces.push({
-        label: "Vertical Partitions",
+        label: isHoriz ? "Horizontal Partitions" : "Vertical Partitions",
         w: depth - 20,
-        l: sideH,
+        l: isHoriz ? (width - thickness * 2) : sideH,
         qty: numPartitions,
-        ebMm: sideH * numPartitions,
+        ebMm: (isHoriz ? (width - thickness * 2) : sideH) * numPartitions,
       });
     }
 
-    // Horizontal Partitions
-    if (numHPartitions > 0) {
-      for (let c = 0; c < numBays; c++) {
-        const w = getColWidth(c);
-        if (w > 0) {
-            pieces.push({
-                label: `Horizontal Partitions (Col ${c + 1})`,
-                w: w,
-                l: depth - 20,
-                qty: numHPartitions,
-                ebMm: w * numHPartitions,
-            });
-        }
-      }
-    }
-    
-    // Legacy single bay values (avg) for UI display
-    const bayWidth = Math.max(0, (innerWidth - totalPartitionThickness) / numBays);
-    const baySideH = Math.max(0, (sideH - totalHPartitionThickness) / numRows);
+    const innerWidth = Math.max(0, width - thickness * 2);
+    const totalPartitionThickness = numPartitions * thickness;
+    const baySideH = isHoriz ? Math.max(0, (sideH - totalPartitionThickness) / numBays) : sideH;
+    const bayWidth = isHoriz ? innerWidth : Math.max(0, (innerWidth - totalPartitionThickness) / numBays);
 
     // Dynamic drawer components
     let totalDrawersCount = 0;
@@ -583,10 +537,6 @@ export default function CustomStorageCalculator() {
     let totalHalfShelvesCount = 0;
 
     bays.forEach((bay, index) => {
-      const r = Math.floor(index / numBays);
-      const c = index % numBays;
-      const bayWidth = getColWidth(c);
-      const baySideH = getRowHeight(r);
       // Internal Shelves for this bay (segmented calculation)
       const cols = (bay.verticalShelves || 0) + 1;
       const rows = (bay.shelves || 0) + 1;
@@ -704,18 +654,14 @@ export default function CustomStorageCalculator() {
 
     // Add Shutter faces
     bays.forEach((bay, index) => {
-      const r = Math.floor(index / numBays);
-      const c = index % numBays;
-      const bayWidth = getColWidth(c);
-      const baySideH = getRowHeight(r);
-      const shH = Math.max(0, baySideH - 4);
+      const shH = Math.max(0, sideH - 4);
       if (bay.style === "open" && bay.boxShutters) {
         const count = bay.boxShutters.filter(Boolean).length;
         if (count > 0) {
           const rows = (bay.shelves || 0) + 1;
           const cols = (bay.verticalShelves || 0) + 1;
           const boxW = Math.max(0, (bayWidth - 4) / cols);
-          const boxH = Math.max(0, (baySideH - 4) / rows);
+          const boxH = Math.max(0, (sideH - 4) / rows);
           pieces.push({
 customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
             label: `Small Box Shutters (Bay ${index + 1})${getCustomMat('shutter', rateToUse).append}`,
@@ -736,8 +682,8 @@ customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
           ebMm: (shW + shH) * 2,
         });
       } else if (bay.style === "1_drawer_1_shutter") {
-        const faceH = Math.min(154, Math.max(0, Math.round(baySideH / 3)));
-        const shutterH = Math.max(0, baySideH - faceH - 4); // minus drawer face height
+        const faceH = Math.min(154, Math.max(0, Math.round(sideH / 3)));
+        const shutterH = Math.max(0, sideH - faceH - 4); // minus drawer face height
         const shW = Math.max(0, bayWidth - 4);
         pieces.push({
 customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
@@ -777,7 +723,7 @@ customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
           ebMm: (shW + shH) * 2,
         });
       } else if (bay.style === "3_drawers") {
-        const faceH = Math.max(0, Math.round(baySideH / 3) - 4);
+        const faceH = Math.max(0, Math.round(sideH / 3) - 4);
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
 customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
@@ -788,7 +734,7 @@ customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
           ebMm: (faceW + faceH) * 2 * 3,
         });
       } else if (bay.style === "2_drawers") {
-        const faceH = Math.max(0, Math.round(baySideH / 2) - 4);
+        const faceH = Math.max(0, Math.round(sideH / 2) - 4);
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
 customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
@@ -799,7 +745,7 @@ customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
           ebMm: (faceW + faceH) * 2 * 2,
         });
       } else if (bay.style === "1_drawer") {
-        const faceH = Math.max(0, baySideH - 4);
+        const faceH = Math.max(0, sideH - 4);
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
 customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
@@ -810,7 +756,7 @@ customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
           ebMm: (faceW + faceH) * 2,
         });
       } else if (bay.style === "1_drawer_open" || bay.style === "1_drawer_1_shutter") {
-        const faceH = Math.min(154, Math.max(0, Math.round(baySideH / 3)));
+        const faceH = Math.min(154, Math.max(0, Math.round(sideH / 3)));
         const faceW = Math.max(0, bayWidth - 4);
         pieces.push({
 customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
@@ -827,21 +773,17 @@ customCostPerSqFt: getCustomMat('shutter', rateToUse).cost,
     if (totalDrawersCount > 0) {
       // We calculate drawer boxes matching the dimensions of the drawer columns
       bays.forEach((bay, index) => {
-      const r = Math.floor(index / numBays);
-      const c = index % numBays;
-      const bayWidth = getColWidth(c);
-      const baySideH = getRowHeight(r);
         let bayDrawers = 0;
         let dh = 120; // default height of drawer box
         if (bay.style === "3_drawers") {
           bayDrawers = 3;
-          dh = Math.max(80, Math.round(baySideH / 3) - 60);
+          dh = Math.max(80, Math.round(sideH / 3) - 60);
         } else if (bay.style === "2_drawers") {
           bayDrawers = 2;
-          dh = Math.max(100, Math.round(baySideH / 2) - 60);
+          dh = Math.max(100, Math.round(sideH / 2) - 60);
         } else if (bay.style === "1_drawer") {
           bayDrawers = 1;
-          dh = Math.max(100, baySideH - 60);
+          dh = Math.max(100, sideH - 60);
         } else if (bay.style === "1_drawer_open" || bay.style === "1_drawer_1_shutter") {
           bayDrawers = 1;
           dh = 100;
@@ -1020,17 +962,6 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
         cost: totalCentralLocksCount * HARDWARE_CENTRAL_LOCK_COST,
       });
     }
-
-    // L Patti
-    const topPerimeterM = (width * 2 + depth * 2) / 1000;
-    const pattiQty = Math.ceil(topPerimeterM * 3.28084 * 2); // 2 L-Pattis per foot of top perimeter
-    hardware.push({
-      label: "L Patti",
-      qty: pattiQty,
-      unitPrice: LPATTI_COST,
-      unit: "pcs",
-      cost: pattiQty * LPATTI_COST,
-    });
 
     // Support legs
     hardware.push({
@@ -1252,17 +1183,6 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
         cost: HARDWARE_HANDLE_COST,
       });
     }
-
-    // L Patti
-    const drawerPerimeterM = (drawerWidth * 2 + drawerDepth * 2) / 1000;
-    const drawerPattiQty = Math.ceil(drawerPerimeterM * 3.28084 * 2);
-    hardware.push({
-      label: "L Patti",
-      qty: drawerPattiQty,
-      unitPrice: LPATTI_COST,
-      unit: "pcs",
-      cost: drawerPattiQty * LPATTI_COST,
-    });
 
     if (drawerLock) {
       hardware.push({
@@ -1557,7 +1477,7 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                   config: {
                     activeTab, isCustomSize, width, depth, height, drawerWidth, drawerDepth,
                     drawerHeight, drawerLock, drawerHandle, quality, boardId,
-                    boardThickness, innerMica, outerMica, numBays, supportLegsCount,
+                    boardThickness, innerMica, outerMica, numBays, bayDirection, supportLegsCount,
                     bays, shutterBoardId, backPanelBoardId, drawerBoxBoardId, pieceOverrides, thicknessOverrides
                   },
                   costSummary: {
@@ -1935,64 +1855,36 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
 
           {/* Section 2: Columns Partition Builder */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between border-b border-gray-100 pb-3 gap-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center gap-2">
                 <LayoutGrid className="w-4 h-4 text-gray-500" />
                 <h2 className="font-semibold text-gray-900 text-sm uppercase tracking-wider">
-                  2. Bays & Front configuration
+                  2. Columns & Front configuration
                 </h2>
               </div>
-              <div className="flex items-center gap-4">
-                {/* Grid Controls */}
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setNumBays(Math.max(1, numBays - 1))}
-                      disabled={numBays <= 1}
-                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 disabled:opacity-40 transition-colors"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <span className="font-bold text-gray-900 text-sm font-mono w-24 text-center">{numBays} Columns</span>
-                    <button
-                      type="button"
-                      onClick={() => setNumBays(numBays + 1)}
-                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-                  
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setNumRows(Math.max(1, numRows - 1))}
-                      disabled={numRows <= 1}
-                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 disabled:opacity-40 transition-colors"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <span className="font-bold text-gray-900 text-sm font-mono w-20 text-center">{numRows} Rows</span>
-                    <button
-                      type="button"
-                      onClick={() => setNumRows(numRows + 1)}
-                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setNumBays(Math.max(1, numBays - 1))}
+                  disabled={numBays <= 1}
+                  className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 disabled:opacity-40 transition-colors"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <span className="font-bold text-gray-900 text-sm font-mono">{numBays} Bays</span>
+                <button
+                  type="button"
+                  onClick={() => setNumBays(numBays + 1)}
+                  className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
             {/* Individual Bay configurator cards */}
             <div className="space-y-4">
-              {bays.map((bay, idx) => {
-                const r = Math.floor(idx / numBays);
-                const c = idx % numBays;
-                const labelText = numRows > 1 ? `Col ${c + 1}, Row ${r + 1}` : `Column ${idx + 1}`;
-                return (
+              {bays.map((bay, idx) => (
                 <div
                   key={idx}
                   className="p-4 rounded-xl border border-gray-150 bg-gray-50/55 flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden group hover:border-indigo-200 hover:bg-white transition-all"
@@ -2203,8 +2095,7 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                     )}
                   </div>
                 </div>
-              );
-              })}
+              ))}
             </div>
 
           </div>
@@ -2387,7 +2278,6 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                     const scale = 1 / (0.4 * (isFullScreenDrawing ? zoomLevel : 1));
                     
                     if (type === 'h') {
-                        if (bayH === undefined) return;
                         let hPositions = bay.shelfOffsets || {};
                         let currentRel = hPositions[idx];
                         if (currentRel === undefined) {
@@ -2403,7 +2293,6 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                         });
                         setDragState({...dragState, startY: e.clientY}); 
                     } else if (type === 'v') {
-                         if (bayW === undefined) return;
                          let vPositions = bay.verticalShelfOffsets || {};
                          let currentRel = vPositions[idx];
                          if (currentRel === undefined) {
@@ -2418,26 +2307,6 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                              verticalShelfOffsets: { ...vPositions, [idx]: newRel }
                          });
                          setDragState({...dragState, startX: e.clientX});
-                    } else if (type === 'main_v') {
-                        let currentRel = colOffsets[idx];
-                        if (currentRel === undefined) {
-                           currentRel = (idx + 1) / numBays;
-                        }
-                        let deltaRel = (dx * scale) / (width - 16); // Total drawW without padding is roughly width
-                        let newRel = currentRel + deltaRel;
-                        newRel = Math.max(0.05, Math.min(0.95, newRel));
-                        setColOffsets(prev => ({ ...prev, [idx]: newRel }));
-                        setDragState({...dragState, startX: e.clientX});
-                    } else if (type === 'main_h') {
-                        let currentRel = rowOffsets[idx];
-                        if (currentRel === undefined) {
-                           currentRel = (idx + 1) / numRows;
-                        }
-                        let deltaRel = (dy * scale) / (height - 16); // Total drawH without padding is roughly height
-                        let newRel = currentRel + deltaRel;
-                        newRel = Math.max(0.05, Math.min(0.95, newRel));
-                        setRowOffsets(prev => ({ ...prev, [idx]: newRel }));
-                        setDragState({...dragState, startY: e.clientY});
                     }
                   }}
                   onPointerUp={(e) => {
@@ -2547,64 +2416,26 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                         />
                       )}
 
-                      {/* Grid Dividers */}
-                      {Array.from({ length: numBays - 1 }).map((_, cIdx) => {
-                         const getColOffset = (idx: number, total: number) => colOffsets[idx] ?? ((idx + 1) / total);
-                         const x = paddingX + 8 + getColOffset(cIdx, numBays) * (drawW - 16);
-                         const isDragging = dragState?.type === 'main_v' && dragState.idx === cIdx;
-                         return (
-                            <g key={`vdiv-${cIdx}`}
-                               className={isDragging ? "cursor-grabbing" : "cursor-col-resize hover:opacity-80 transition-opacity"}
-                               onPointerDown={(e) => {
-                                  setDragState({ bayIdx: -1, type: 'main_v', idx: cIdx, startX: e.clientX, startY: e.clientY, isDragging: false });
-                                  if (e.target && (e.target as Element).setPointerCapture) (e.target as Element).setPointerCapture(e.pointerId);
-                                  e.stopPropagation();
-                               }}
-                            >
-                                <line x1={x} y1={paddingY + 8} x2={x} y2={paddingY + drawH - 8} stroke="transparent" strokeWidth="15" />
-                                <line x1={x} y1={paddingY + 8} x2={x} y2={paddingY + drawH - 8} stroke={isDragging ? "#6366f1" : "#475569"} strokeWidth="2.5" />
-                            </g>
-                         );
-                      })}
-                      {Array.from({ length: numRows - 1 }).map((_, rIdx) => {
-                         const getRowOffset = (idx: number, total: number) => rowOffsets[idx] ?? ((idx + 1) / total);
-                         const y = paddingY + 8 + getRowOffset(rIdx, numRows) * (drawH - 16);
-                         const isDragging = dragState?.type === 'main_h' && dragState.idx === rIdx;
-                         return (
-                            <g key={`hdiv-${rIdx}`}
-                               className={isDragging ? "cursor-grabbing" : "cursor-row-resize hover:opacity-80 transition-opacity"}
-                               onPointerDown={(e) => {
-                                  setDragState({ bayIdx: -1, type: 'main_h', idx: rIdx, startX: e.clientX, startY: e.clientY, isDragging: false });
-                                  if (e.target && (e.target as Element).setPointerCapture) (e.target as Element).setPointerCapture(e.pointerId);
-                                  e.stopPropagation();
-                               }}
-                            >
-                                <line x1={paddingX + 8} y1={y} x2={paddingX + drawW - 8} y2={y} stroke="transparent" strokeWidth="15" />
-                                <line x1={paddingX + 8} y1={y} x2={paddingX + drawW - 8} y2={y} stroke={isDragging ? "#6366f1" : "#475569"} strokeWidth="2.5" />
-                            </g>
-                         );
-                      })}
-
-                      {/* Draw column/row dividers and styles */}
+                      {/* Draw column dividers and styles */}
                       {bays.map((bay, idx) => {
-                        const r = Math.floor(idx / numBays);
-                        const c = idx % numBays;
-                        
-                        const getColOffset = (idx: number, total: number) => colOffsets[idx] ?? ((idx + 1) / total);
-                        const getRowOffset = (idx: number, total: number) => rowOffsets[idx] ?? ((idx + 1) / total);
-                        
-                        const colStart = c > 0 ? getColOffset(c - 1, numBays) : 0;
-                        const colEnd = c < numBays - 1 ? getColOffset(c, numBays) : 1;
-                        const rowStart = r > 0 ? getRowOffset(r - 1, numRows) : 0;
-                        const rowEnd = r < numRows - 1 ? getRowOffset(r, numRows) : 1;
-                        
-                        const bayW = (colEnd - colStart) * (drawW - 16);
-                        const bayH = (rowEnd - rowStart) * (drawH - 16);
-                        const bayX = paddingX + 8 + colStart * (drawW - 16);
-                        const bayY = paddingY + 8 + rowStart * (drawH - 16);
+                        const bayW = (drawW - 16) / numBays;
+                        const bayX = paddingX + 8 + idx * bayW;
+                        const bayY = paddingY + 8;
+                        const bayH = drawH - 16;
 
                         return (
                           <g key={idx}>
+                            {/* Vertical divider lines between bays */}
+                            {idx > 0 && (
+                              <line
+                                x1={bayX}
+                                y1={bayY}
+                                x2={bayX}
+                                y2={bayY + bayH}
+                                stroke="#475569"
+                                strokeWidth="2.5"
+                              />
+                            )}
 
                             {/* Render different cabinet styles inside columns */}
                             {bay.style === "open" && (
@@ -3218,54 +3049,7 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                 {/* Dragging Measurements Overlay */}
                 {dragState && dragState.isDragging && (
                   (() => {
-                    const drawW = width;
-                    const drawH = height;
-                    const paddingX = 50;
-                    const paddingY = 50;
-
-                    if (dragState.type === 'main_v') {
-                        const getColOffset = (idx: number, total: number) => colOffsets[idx] ?? ((idx + 1) / total);
-                        const offsetRel = getColOffset(dragState.idx, numBays);
-                        const prevOffset = dragState.idx > 0 ? getColOffset(dragState.idx - 1, numBays) : 0;
-                        const nextOffset = dragState.idx < numBays - 1 ? getColOffset(dragState.idx + 1, numBays) : 1;
-                        
-                        const xAbsolute = paddingX + 8 + offsetRel * (drawW - 16);
-                        const leftW = (offsetRel - prevOffset) * (drawW - 16);
-                        const rightW = (nextOffset - offsetRel) * (drawW - 16);
-
-                        return (
-                         <g pointerEvents="none">
-                           <line y1={paddingY + 8} y2={paddingY + drawH - 8} x1={xAbsolute} x2={xAbsolute} stroke="#6366f1" strokeWidth="2" />
-                           <rect x={xAbsolute - leftW / 2 - 30} y={paddingY + drawH / 2 - 12} width="60" height="24" fill="#6366f1" rx="12" />
-                           <text x={xAbsolute - leftW / 2} y={paddingY + drawH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(leftW)}mm</text>
-                           <rect x={xAbsolute + rightW / 2 - 30} y={paddingY + drawH / 2 - 12} width="60" height="24" fill="#6366f1" rx="12" />
-                           <text x={xAbsolute + rightW / 2} y={paddingY + drawH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(rightW)}mm</text>
-                         </g>
-                        );
-                    } else if (dragState.type === 'main_h') {
-                        const getRowOffset = (idx: number, total: number) => rowOffsets[idx] ?? ((idx + 1) / total);
-                        const offsetRel = getRowOffset(dragState.idx, numRows);
-                        const prevOffset = dragState.idx > 0 ? getRowOffset(dragState.idx - 1, numRows) : 0;
-                        const nextOffset = dragState.idx < numRows - 1 ? getRowOffset(dragState.idx + 1, numRows) : 1;
-
-                        const yAbsolute = paddingY + 8 + offsetRel * (drawH - 16);
-                        const topH = (offsetRel - prevOffset) * (drawH - 16);
-                        const bottomH = (nextOffset - offsetRel) * (drawH - 16);
-
-                        return (
-                         <g pointerEvents="none">
-                           <line x1={paddingX + 8} x2={paddingX + drawW - 8} y1={yAbsolute} y2={yAbsolute} stroke="#6366f1" strokeWidth="2" />
-                           <rect x={paddingX + drawW / 2 - 30} y={yAbsolute - topH / 2 - 12} width="60" height="24" fill="#6366f1" rx="12" />
-                           <text x={paddingX + drawW / 2} y={yAbsolute - topH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(topH)}mm</text>
-                           <rect x={paddingX + drawW / 2 - 30} y={yAbsolute + bottomH / 2 - 12} width="60" height="24" fill="#6366f1" rx="12" />
-                           <text x={paddingX + drawW / 2} y={yAbsolute + bottomH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(bottomH)}mm</text>
-                         </g>
-                        );
-                    }
-                    
                     const bay = bays[dragState.bayIdx];
-                    if (!bay) return null;
-
                     if (dragState.type === 'h') {
                        const offsetRel = bay.shelfOffsets?.[dragState.idx] ?? ((dragState.idx + 1) / ((bay.shelves || 0) + 1));
                        const yInBay = offsetRel * (dragState.bayH - 4);
@@ -3290,7 +3074,7 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                            <text x={dragState.bayX + dragState.bayW / 2} y={yAbsolute + bottomH / 2} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(bottomH)}mm</text>
                          </g>
                        );
-                    } else if (dragState.type === 'v') {
+                    } else {
                        const offsetRel = bay.verticalShelfOffsets?.[dragState.idx] ?? ((dragState.idx + 1) / ((bay.verticalShelves || 0) + 1));
                        const xInBay = offsetRel * (dragState.bayW - 4);
                        const xAbsolute = dragState.bayX + 2 + xInBay;
@@ -3315,7 +3099,6 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                          </g>
                        );
                     }
-                    return null;
                   })()
                 )}
               </svg>
@@ -3378,7 +3161,7 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                 Product DNA Summary
               </div>
               <div>• Shell Size: {width} x {depth} x {height} mm</div>
-              <div>• Bays Configured: {numBays} columns x {numRows} rows</div>
+              <div>• Columns Configured: {numBays} partitions</div>
               <div>• Core Board Wood: {activeBoard.name}</div>
               <div>• Outer Mica overlay: {outerMica === "none" ? "None" : `${outerMica}mm overlay`}</div>
             </div>

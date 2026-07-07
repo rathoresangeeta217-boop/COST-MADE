@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router-dom';
-import { Pickaxe, Home, LogIn, LogOut, Cloud } from 'lucide-react';
+import { Pickaxe, Home, LogIn, LogOut, Cloud, FileDown } from 'lucide-react';
+import { downloadHardwarePdf } from '../lib/downloadHardwarePdf';
 import { useFirestoreSync } from '../lib/useFirestoreSync';
 import { useAuth } from '../lib/AuthContext';
 
@@ -25,7 +26,22 @@ export default function Layout() {
               <Home className="w-4 h-4" />
               Products
             </Link>
+            <Link
+              to="/rules"
+              className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <Pickaxe className="w-4 h-4" />
+              Pricing Rules
+            </Link>
             
+            <button
+              onClick={downloadHardwarePdf}
+              className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors bg-indigo-50 px-3 py-1.5 rounded-md"
+            >
+              <FileDown className="w-4 h-4" />
+              Hardware Rates
+            </button>
+
             <div className="w-px h-6 bg-gray-200"></div>
 
             {user ? (
