@@ -201,6 +201,7 @@ export default function CustomStorageCalculator() {
   const { projects, addItemToProject, updateItemInProject } = useProjectStore();
 
   const [activeTab, setActiveTab] = useState<"storage" | "drawer">("storage");
+  const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
   const [isCustomSize, setIsCustomSize] = useState<boolean>(false);
   const [isFullScreenDrawing, setIsFullScreenDrawing] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
@@ -1356,6 +1357,14 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
     alert("Specifications copied to clipboard!");
   };
 
+  const copyImagePrompt = () => {
+    let boardName = BOARDS.find((b) => b.id === boardId)?.name || "wood";
+    const prompt = `A highly realistic, professional product photography studio shot of a modern office storage cabinet. The cabinet dimensions are ${width}mm wide, ${depth}mm deep, and ${height}mm high. It is made of ${boardName} finish. It features ${numBays} bays and ${numRows} rows of storage space. Clean, ultra-minimalist solid white background. Studio lighting, highly detailed, 8k resolution, photorealistic furniture photography.`;
+    navigator.clipboard.writeText(prompt);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2000);
+  };
+
   // Export PDF
   const exportPDF = () => {
     const doc = new jsPDF();
@@ -1588,6 +1597,13 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
           >
             <Copy className="w-4 h-4 text-gray-500" />
             Copy Quote
+          </button>
+          <button
+            onClick={copyImagePrompt}
+            className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl hover:bg-indigo-100/80 hover:border-indigo-200 transition-all shadow-sm"
+          >
+            <Copy className="w-4 h-4 text-indigo-600" />
+            {copiedPrompt ? "Copied!" : "Image Prompt"}
           </button>
           <button
             onClick={exportExcel}
@@ -2250,7 +2266,7 @@ customCostPerSqFt: getCustomMat('drawer', rateToUse).cost,
                         >
                           <option value="default">Default</option>
                           {boards.map(b => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
+                            <option key={b.id} value={b.id}>{b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)</option>
                           ))}
                         </select>
                       </td>

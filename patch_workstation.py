@@ -3,9 +3,25 @@ import re
 with open('src/pages/WorkstationCalculator.tsx', 'r') as f:
     content = f.read()
 
-content = content.replace("const butterflyCost = numLegs * 2 * 12.5;\n    const accessoriesCost = bufferCost + nutCost + butterflyCost;", "const butterflyCost = numLegs * 2 * 12.5;\n    const clampCost = numLegs * 2 * 10;\n    const accessoriesCost = bufferCost + nutCost + butterflyCost + clampCost;")
-content = content.replace('label: "Leg Accessories (Buffer, Nut, Butterfly)",', 'label: "Leg Accessories (Buffer, Nut, Butterfly, Clamp)",')
-content = content.replace('unitPrice: 37,', 'unitPrice: 57,')
+replacement = """  let bCostTotal = topCost;
+
+  const topPerimeterMPerPerson = ((width * 2 + depth * 2) / 1000) * 1.2;
+  const topPerimeterM = topPerimeterMPerPerson * actualPersons;
+
+  // Edge Banding for Table Top (only for Wood tops)
+  if (topMaterialCategory !== "marble") {"""
+
+content = re.sub(
+    r'  let bCostTotal = topCost;\n\n  // Edge Banding for Table Top \(only for Wood tops\)\n  if \(topMaterialCategory !== "marble"\) \{',
+    replacement,
+    content
+)
+
+content = re.sub(
+    r'    const topPerimeterMPerPerson = \(\(width \* 2 \+ depth \* 2\) / 1000\) \* 1\.2;\n    const topPerimeterM = topPerimeterMPerPerson \* actualPersons;\n',
+    '',
+    content
+)
 
 with open('src/pages/WorkstationCalculator.tsx', 'w') as f:
     f.write(content)

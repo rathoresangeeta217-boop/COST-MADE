@@ -431,7 +431,15 @@ export function calculateLShapeCost({
     });
   }
 
+  let topPerimeterM = (mainWidth * 2 + mainDepth * 2) / 1000;
+  if (includeReturnStorage) {
+    topPerimeterM += (returnWidth * 2 + returnDepth * 2) / 1000;
+    topPerimeterM -= (2 * Math.min(mainDepth, returnDepth)) / 1000;
+  }
+  topPerimeterM *= 1.2; // 20% wastage
+
   // Edge Banding for Table Tops (only for Wood tops)
+
   if (topMaterialCategory !== "marble") {
     let edgeBandingRate = 13;
     let edgeBandingThickness = "0.8mm";
@@ -443,14 +451,6 @@ export function calculateLShapeCost({
       edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
     }
 
-    let topPerimeterM = (mainWidth * 2 + mainDepth * 2) / 1000;
-    if (includeReturnStorage) {
-      topPerimeterM += (returnWidth * 2 + returnDepth * 2) / 1000;
-      // Subtract the overlap joint length (times 2 because both edges are joined)
-      topPerimeterM -= (2 * Math.min(mainDepth, returnDepth)) / 1000;
-    }
-    
-    topPerimeterM *= 1.2; // 20% wastage
 
     const edgeBandingCost = topPerimeterM * edgeBandingRate;
     bCostTotal += edgeBandingCost;

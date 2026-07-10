@@ -719,7 +719,7 @@ Studio lighting, 8k resolution, photorealistic, architectural digest style.`;
                     className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                   >
                     {boards.map((b) => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
+                      <option key={b.id} value={b.id}>{b.name} (₹{getTopRate(b.id, b.costPerSqFt, topThickness, quality)}/sq.ft)</option>
                     ))}
                   </select>
                 </div>

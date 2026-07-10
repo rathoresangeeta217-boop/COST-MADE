@@ -249,6 +249,9 @@ export function calculateWorkstationCost({
 
   let bCostTotal = topCost;
 
+  const topPerimeterMPerPerson = ((width * 2 + depth * 2) / 1000) * 1.2;
+  const topPerimeterM = topPerimeterMPerPerson * actualPersons;
+
   // Edge Banding for Table Top (only for Wood tops)
   if (topMaterialCategory !== "marble") {
     let edgeBandingRate = 13;
@@ -261,8 +264,6 @@ export function calculateWorkstationCost({
       edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
     }
 
-    const topPerimeterMPerPerson = ((width * 2 + depth * 2) / 1000) * 1.2;
-    const topPerimeterM = topPerimeterMPerPerson * actualPersons;
     const edgeBandingCost = topPerimeterM * edgeBandingRate;
     bCostTotal += edgeBandingCost;
     bDetails.push({
@@ -1694,7 +1695,7 @@ export default function WorkstationCalculator() {
                 >
                   <option value="none">None</option>
                                     <option value="raceway">
-                    Aluminum Flap Box (₹{WIRE_MANAGER_COST})
+                    Aluminum Flap Box (₹{flapBoxRate})
                   </option>
                   <option value="wire_raceway">
                     Metal Wire Raceway Tray (₹{METAL_RACEWAY_COST})
