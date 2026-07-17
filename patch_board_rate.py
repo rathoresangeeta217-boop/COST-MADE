@@ -1,23 +1,24 @@
 import re
 
-with open('src/pages/ConferenceTableCalculator.tsx', 'r') as f:
+with open('src/pages/CustomStorageCalculator.tsx', 'r') as f:
     content = f.read()
 
-content = content.replace(
-    "<option key={b.id} value={b.id}>{b.name}</option>",
-    "<option key={b.id} value={b.id}>{b.name} (₹{getTopRate(b.id, b.costPerSqFt, topThickness, quality)}/sq.ft)</option>"
-)
+getBoardRateNew = """export const getBoardRate = (
+  boardId: string,
+  baseRate: number,
+  thickness: number,
+  quality: string,
+): number => {
+  if (boardId === "crca_powder_coated" || boardId === "ss_304") {
+    return baseRate * (thickness / 1.2);
+  }
+"""
 
-with open('src/pages/ConferenceTableCalculator.tsx', 'w') as f:
-    f.write(content)
-
-with open('src/pages/CustomStorageCalculator.tsx', 'r') as f:
-    content2 = f.read()
-
-content2 = content2.replace(
-    "<option key={b.id} value={b.id}>{b.name}</option>",
-    "<option key={b.id} value={b.id}>{b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)</option>"
+content = re.sub(
+    r'export const getBoardRate = \(\n  boardId: string,\n  baseRate: number,\n  thickness: number,\n  quality: string,\n\): number => \{\n',
+    getBoardRateNew,
+    content
 )
 
 with open('src/pages/CustomStorageCalculator.tsx', 'w') as f:
-    f.write(content2)
+    f.write(content)

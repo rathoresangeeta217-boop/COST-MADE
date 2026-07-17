@@ -1,0 +1,10 @@
+1401: + div (depth 1) - <div className="flex items-center justif
+1402: + div (depth 2) - <div className="flex items-center gap-2"
+1407: - div (depth 2) - </div>
+1411: - div (depth 1) - </div>
+1413: + div (depth 1) - <div className="overflow-x-auto max-h-[3
+1473: - div (depth 1) - </div>
+1475: + div (depth 1) - <div className="p-3.5 bg-gray-50 border 
+1477: - div (depth 1) - </div>
+1478: - div (depth 0) - </div>
+1480: - div (depth -1) - </div>

@@ -1,0 +1,13 @@
+[96msrc/pages/CustomStorageCalculator.tsx[0m:[93m3654[0m:[93m7[0m - [91merror[0m[90m TS1005: [0m')' expected.
+
+[7m3654[0m       </div>
+[7m    [0m [91m      ~~[0m
+
+[96msrc/pages/CustomStorageCalculator.tsx[0m:[93m4061[0m:[93m8[0m - [91merror[0m[90m TS1381: [0mUnexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+[7m4061[0m       )}
+[7m    [0m [91m       ~[0m
+
+
+Found 2 errors in the same file, starting at: src/pages/CustomStorageCalculator.tsx[90m:3654[0m
+
