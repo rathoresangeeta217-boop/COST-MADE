@@ -516,20 +516,38 @@ export default function CustomStorageCalculator() {
   const activeBoard = { name: "Engineered Wood", id: "ew" };
 
   const calcData = useMemo(() => {
+    const getPieceRate = (label: string, defaultThickness: number) => {
+        const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
+        const overrideBoardId = pieceOverrides[key];
+        const overrideThickness = thicknessOverrides[key];
+        
+        const bid = overrideBoardId && overrideBoardId !== 'default' ? overrideBoardId : boardId;
+        const thk = overrideThickness || defaultThickness;
+        const b = boards.find(b => b.id === bid);
+        if (!b) return 100;
+        return getBoardRate(bid, b.costPerSqFt, thk, quality);
+    };
+
     let angularShelvesCost = 0;
     let angularSqFt = 0;
-    const rate = 100; // Mock rate
+    
     const angularPieces = angularShelves.map((s, i) => {
+        const label = `Angular Shelf ${i+1}`;
         const length = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
         const area = (length * depth) / 90000;
+        const rate = getPieceRate(label, boardThickness);
         const cost = area * rate;
         angularSqFt += area;
         angularShelvesCost += cost;
-        return { label: `Angular Shelf ${i+1}`, l: length, w: length, h: depth, qty: 1, type: "Core", cost, totalSqFt: area, rate };
+        return { label, l: length, w: length, h: depth, qty: 1, type: "Core", cost, totalSqFt: area, rate };
     });
 
-    const baseMaterialCost = 5000 + angularShelvesCost;
-    const baseSqFt = 50 + angularSqFt;
+    const tbSqFt = 10;
+    const tbRate = getPieceRate("Top/Bottom", boardThickness);
+    const tbCost = tbSqFt * tbRate;
+
+    const baseMaterialCost = 4000 + tbCost + angularShelvesCost;
+    const baseSqFt = 40 + tbSqFt + angularSqFt;
     const netManufacturing = baseMaterialCost + 1000 + 2000 + 3000 + 500 + 500;
     const profit = netManufacturing * 0.25;
     
@@ -547,7 +565,7 @@ export default function CustomStorageCalculator() {
         profitMargin: profit
       },
       pieces: [
-        { label: "Top/Bottom", l: width, w: width, h: depth, qty: 2, type: "Core", cost: 1000, totalSqFt: 10, rate: 100 },
+        { label: "Top/Bottom", l: width, w: width, h: depth, qty: 2, type: "Core", cost: tbCost, totalSqFt: tbSqFt, rate: tbRate },
         ...angularPieces
       ],
       hardware: [
@@ -555,7 +573,7 @@ export default function CustomStorageCalculator() {
       ],
       bayWidth: width / (numBays || 1)
     };
-  }, [width, depth, numBays, angularShelves]);
+  }, [width, depth, numBays, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards]);
 
   const drawerCalcData = {
     totals: {
@@ -2842,6 +2860,7 @@ export default function CustomStorageCalculator() {
                   const isVertical = Math.abs(s.x1 - s.x2) < 5;
                   const isHorizontal = Math.abs(s.y1 - s.y2) < 5;
                   const show4Sides = isDrawingAngular && (isVertical || isHorizontal);
+                  const isAngular = !isVertical && !isHorizontal;
 
                   return (
                   <g key={s.id}>
@@ -2849,6 +2868,19 @@ export default function CustomStorageCalculator() {
                      <rect x={cx - 30} y={cy - 12} width="60" height="24" fill="#f59e0b" rx="12" />
                      <text x={cx} y={cy} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(length)}mm</text>
                      
+                     {isAngular && (
+                        <g>
+                          <line x1={s.x1} y1={s.y2} x2={s.x2} y2={s.y2} stroke="#10b981" strokeWidth="2" strokeDasharray="4,4" />
+                          <line x1={s.x1} y1={s.y1} x2={s.x1} y2={s.y2} stroke="#10b981" strokeWidth="2" strokeDasharray="4,4" />
+                          
+                          <rect x={cx - 25} y={s.y2 - 12 + (s.y1 < s.y2 ? 20 : -20)} width="50" height="20" fill="#10b981" rx="10" />
+                          <text x={cx} y={s.y2 + (s.y1 < s.y2 ? 20 : -20)} fill="white" fontSize="10" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">W: {Math.round(Math.abs(s.x2 - s.x1))}mm</text>
+                          
+                          <rect x={s.x1 - 25 + (s.x1 < s.x2 ? -30 : 30)} y={cy - 10} width="50" height="20" fill="#10b981" rx="10" />
+                          <text x={s.x1 + (s.x1 < s.x2 ? -30 : 30)} y={cy} fill="white" fontSize="10" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">H: {Math.round(Math.abs(s.y2 - s.y1))}mm</text>
+                        </g>
+                     )}
+
                      {show4Sides && (() => {
                         const minX = Math.min(s.x1, s.x2);
                         const maxX = Math.max(s.x1, s.x2);
@@ -2922,12 +2954,26 @@ export default function CustomStorageCalculator() {
                   const isVertical = Math.abs(currentAngularShelf.x1 - currentAngularShelf.x2) < 5;
                   const isHorizontal = Math.abs(currentAngularShelf.y1 - currentAngularShelf.y2) < 5;
                   const show4Sides = isVertical || isHorizontal;
+                  const isAngular = !isVertical && !isHorizontal;
 
                   return (
                     <g pointerEvents="none">
                       <line x1={currentAngularShelf.x1} y1={currentAngularShelf.y1} x2={currentAngularShelf.x2} y2={currentAngularShelf.y2} stroke="#f59e0b" strokeWidth="8" strokeDasharray="5,5" opacity="0.7" strokeLinecap="round" />
                       <rect x={cx - 30} y={cy - 12} width="60" height="24" fill="#f59e0b" rx="12" />
                       <text x={cx} y={cy} fill="white" fontSize="11" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{Math.round(length)}mm</text>
+                      
+                      {isAngular && (
+                        <g>
+                          <line x1={currentAngularShelf.x1} y1={currentAngularShelf.y2} x2={currentAngularShelf.x2} y2={currentAngularShelf.y2} stroke="#10b981" strokeWidth="2" strokeDasharray="4,4" opacity="0.7" />
+                          <line x1={currentAngularShelf.x1} y1={currentAngularShelf.y1} x2={currentAngularShelf.x1} y2={currentAngularShelf.y2} stroke="#10b981" strokeWidth="2" strokeDasharray="4,4" opacity="0.7" />
+                          
+                          <rect x={cx - 25} y={currentAngularShelf.y2 - 12 + (currentAngularShelf.y1 < currentAngularShelf.y2 ? 20 : -20)} width="50" height="20" fill="#10b981" rx="10" />
+                          <text x={cx} y={currentAngularShelf.y2 + (currentAngularShelf.y1 < currentAngularShelf.y2 ? 20 : -20)} fill="white" fontSize="10" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">W: {Math.round(Math.abs(currentAngularShelf.x2 - currentAngularShelf.x1))}mm</text>
+                          
+                          <rect x={currentAngularShelf.x1 - 25 + (currentAngularShelf.x1 < currentAngularShelf.x2 ? -30 : 30)} y={cy - 10} width="50" height="20" fill="#10b981" rx="10" />
+                          <text x={currentAngularShelf.x1 + (currentAngularShelf.x1 < currentAngularShelf.x2 ? -30 : 30)} y={cy} fill="white" fontSize="10" textAnchor="middle" dominantBaseline="middle" fontWeight="bold">H: {Math.round(Math.abs(currentAngularShelf.y2 - currentAngularShelf.y1))}mm</text>
+                        </g>
+                      )}
 
                       {show4Sides && (() => {
                         const minX = Math.min(currentAngularShelf.x1, currentAngularShelf.x2);
