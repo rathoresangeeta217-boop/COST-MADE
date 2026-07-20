@@ -1546,19 +1546,7 @@ export default function WorkstationCalculator() {
                     </div>
                   </>
                 )}
-                <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Number of Leg Panels / Frames
-                  </label>
-                  <input
-                    type="number"
-                    value={legCountOverride === 0 ? '' : legCountOverride}
-                    onChange={(e) => setLegCountOverride(Number(e.target.value) || 0)}
-                    placeholder="Auto (based on layout)"
-                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
-                    min="0"
-                  />
-                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Understructure (Legs)
@@ -1574,6 +1562,19 @@ export default function WorkstationCalculator() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Custom Leg Count (Override)
+                  </label>
+                  <input
+                    type="number"
+                    value={legCountOverride === 0 ? '' : legCountOverride}
+                    onChange={(e) => setLegCountOverride(Number(e.target.value) || 0)}
+                    placeholder="Auto calculation"
+                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
+                    min="0"
+                  />
                 </div>
                 {legId === "board" && (
                   <div className="sm:col-span-2">
