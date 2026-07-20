@@ -3,104 +3,34 @@ import re
 with open('src/pages/CustomStorageCalculator.tsx', 'r') as f:
     content = f.read()
 
-calc_old = """    // Vertical Partitions
-    const numPartitions = numBays - 1;
-    if (numPartitions > 0) {
-      pieces.push({
-        label: "Vertical Partitions",
-        w: depth - 20,
-        l: sideH,
-        qty: numPartitions,
-        ebMm: sideH * numPartitions,
-      });
-    }
+start_str = "      pieces: ["
+end_str = "      bayWidth: width / (numBays || 1)"
 
-    // Inside dimensions for columns
-    const innerWidth = Math.max(0, width - thickness * 2);
-    const totalPartitionThickness = numPartitions * thickness;
-    const bayWidth = Math.max(0, (innerWidth - totalPartitionThickness) / numBays);
+start_idx = content.find(start_str)
+end_idx = content.find(end_str, start_idx)
 
-    // Horizontal Partitions
-    const numHPartitions = numRows - 1;
-    if (numHPartitions > 0) {
-      pieces.push({
-        label: "Horizontal Partitions",
-        w: bayWidth,
-        l: depth - 20,
-        qty: numHPartitions * numBays,
-        ebMm: bayWidth * numHPartitions * numBays,
-      });
-    }
-    const totalHPartitionThickness = numHPartitions * thickness;
-    const baySideH = Math.max(0, (sideH - totalHPartitionThickness) / numRows);"""
+replacement = """    let totalDrawers = 0;
+    let totalDoors = 0;
+    bays.forEach(bay => {
+       if (bay.style === '1_drawer') totalDrawers += 1;
+       if (bay.style === '2_drawers') totalDrawers += 2;
+       if (bay.style === '3_drawers') totalDrawers += 3;
+       if (bay.style === '1_drawer_1_shutter') { totalDrawers += 1; totalDoors += 1; }
+       if (bay.style === 'shutter_solid' || bay.style === 'shutter_glass') totalDoors += 1;
+       if (bay.style === 'shutters_double') totalDoors += 2;
+    });
 
-calc_new = """    // Helpers for offsets
-    const getColOffset = (idx: number, total: number) => colOffsets[idx] ?? ((idx + 1) / total);
-    const getRowOffset = (idx: number, total: number) => rowOffsets[idx] ?? ((idx + 1) / total);
+    const hardware = [
+        { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 },
+        ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors, cost: totalDoors * 150, unit: "pair", unitPrice: 150 } as any] : []),
+        ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 250, unit: "pair", unitPrice: 250 } as any] : [])
+    ];
     
-    // Inside dimensions for columns
-    const numPartitions = numBays - 1;
-    const innerWidth = Math.max(0, width - thickness * 2);
-    const totalPartitionThickness = numPartitions * thickness;
-    
-    const numHPartitions = numRows - 1;
-    const totalHPartitionThickness = numHPartitions * thickness;
+    // Add hardware cost to grand total
+    const hwCost = hardware.reduce((sum, h) => sum + h.cost, 0);
 
-    // Helper to get bayWidth
-    const getColWidth = (c: number) => {
-        const prevOffset = c > 0 ? getColOffset(c - 1, numBays) : 0;
-        const nextOffset = c < numBays - 1 ? getColOffset(c, numBays) : 1;
-        const span = nextOffset - prevOffset;
-        return Math.max(0, (innerWidth - totalPartitionThickness) * span);
-    };
+      pieces: [
+"""
 
-    // Helper to get baySideH
-    const getRowHeight = (r: number) => {
-        const prevOffset = r > 0 ? getRowOffset(r - 1, numRows) : 0;
-        const nextOffset = r < numRows - 1 ? getRowOffset(r, numRows) : 1;
-        const span = nextOffset - prevOffset;
-        return Math.max(0, (sideH - totalHPartitionThickness) * span);
-    };
-
-    // Vertical Partitions
-    if (numPartitions > 0) {
-      pieces.push({
-        label: "Vertical Partitions",
-        w: depth - 20,
-        l: sideH,
-        qty: numPartitions,
-        ebMm: sideH * numPartitions,
-      });
-    }
-
-    // Horizontal Partitions
-    if (numHPartitions > 0) {
-      for (let c = 0; c < numBays; c++) {
-        const w = getColWidth(c);
-        if (w > 0) {
-            pieces.push({
-                label: `Horizontal Partitions (Col ${c + 1})`,
-                w: w,
-                l: depth - 20,
-                qty: numHPartitions,
-                ebMm: w * numHPartitions,
-            });
-        }
-      }
-    }
-    
-    // Legacy single bay values (avg) for UI display
-    const bayWidth = Math.max(0, (innerWidth - totalPartitionThickness) / numBays);
-    const baySideH = Math.max(0, (sideH - totalHPartitionThickness) / numRows);"""
-
-content = content.replace(calc_old, calc_new)
-
-# Inside bays.forEach, we need to redefine bayWidth and baySideH
-content = content.replace(
-    'bays.forEach((bay, index) => {',
-    'bays.forEach((bay, index) => {\n      const r = Math.floor(index / numBays);\n      const c = index % numBays;\n      const bayWidth = getColWidth(c);\n      const baySideH = getRowHeight(r);'
-)
-
-with open('src/pages/CustomStorageCalculator.tsx', 'w') as f:
-    f.write(content)
-print("Done")
+# Wait, we need to modify netManufacturing to include hwCost!
+# Actually, netManufacturing is defined before this. 

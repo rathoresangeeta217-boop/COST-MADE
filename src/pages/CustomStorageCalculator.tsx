@@ -180,11 +180,11 @@ export const getBoardRate = (
   return baseRate * (thickness / 18);
 };
 
-const HARDWARE_CHANNEL_COST = 235;
+const HARDWARE_CHANNEL_COST = 250;
 const HARDWARE_HANDLE_COST = 50;
 const HARDWARE_LOCK_COST = 120;
 const HARDWARE_CENTRAL_LOCK_COST = 220;
-const HARDWARE_SHUTTER_HINGE_COST = 62.5; // Rs 125 per pair
+const HARDWARE_SHUTTER_HINGE_COST = 75; // Rs 150 per pair
 const HARDWARE_LEVELLER_COST = 50; // Levelling legs
 const BASE_LABOR_COST = 600;
 const LABOR_PER_BAY_COST = 300;
@@ -546,9 +546,28 @@ export default function CustomStorageCalculator() {
     const tbRate = getPieceRate("Top/Bottom", boardThickness);
     const tbCost = tbSqFt * tbRate;
 
+    let totalDrawers = 0;
+    let totalDoors = 0;
+    bays.forEach(bay => {
+       if (bay.style === '1_drawer') totalDrawers += 1;
+       if (bay.style === '2_drawers') totalDrawers += 2;
+       if (bay.style === '3_drawers') totalDrawers += 3;
+       if (bay.style === '1_drawer_1_shutter') { totalDrawers += 1; totalDoors += 1; }
+       if (bay.style === 'shutter_solid' || bay.style === 'shutter_glass') totalDoors += 1;
+       if (bay.style === 'shutters_double') totalDoors += 2;
+    });
+
+    const hardware = [
+        { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 },
+        ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors, cost: totalDoors * 150, unit: "pair", unitPrice: 150 }] : []),
+        ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 250, unit: "pair", unitPrice: 250 }] : [])
+    ];
+    
+    const hwCost = hardware.reduce((sum, h) => sum + h.cost, 0);
+
     const baseMaterialCost = 4000 + tbCost + angularShelvesCost;
     const baseSqFt = 40 + tbSqFt + angularSqFt;
-    const netManufacturing = baseMaterialCost + 1000 + 2000 + 3000 + 500 + 500;
+    const netManufacturing = baseMaterialCost + 1000 + hwCost + 3000 + 500 + 500;
     const profit = netManufacturing * 0.25;
     
     return {
@@ -557,7 +576,7 @@ export default function CustomStorageCalculator() {
         boardsSqFt: baseSqFt,
         materialCost: baseMaterialCost,
         backingCost: 1000,
-        hardwareCost: 2000,
+        hardwareCost: hwCost,
         laborCost: 3000,
         packagingCost: 500,
         toolingCost: 500,
@@ -568,12 +587,10 @@ export default function CustomStorageCalculator() {
         { label: "Top/Bottom", l: width, w: width, h: depth, qty: 2, type: "Core", cost: tbCost, totalSqFt: tbSqFt, rate: tbRate },
         ...angularPieces
       ],
-      hardware: [
-        { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 }
-      ],
+      hardware,
       bayWidth: width / (numBays || 1)
     };
-  }, [width, depth, numBays, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards]);
+  }, [width, depth, numBays, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards, bays]);
 
   const drawerCalcData = {
     totals: {
@@ -591,7 +608,7 @@ export default function CustomStorageCalculator() {
       { label: "Drawer Front", l: drawerWidth, w: drawerWidth, h: drawerHeight, qty: 1, type: "Core", cost: 500, totalSqFt: 5, rate: 100 }
     ],
     hardware: [
-      { label: "Channels", qty: 1, cost: 300, unit: "pair", unitPrice: 300 }
+      { label: "Channels", qty: 1, cost: 250, unit: "pair", unitPrice: 250 }
     ]
   };
   const computedLockerWidth = lockerSizeMode === "box" ? lockerBoxWidth * lockerColumns : lockerWidth;
@@ -626,8 +643,8 @@ export default function CustomStorageCalculator() {
     else if (lockerLockType === "padlock") lockPrice = 50;
     else if (lockerLockType === "digital") lockPrice = 850;
     
-    const hingesQty = activeDoors * 2;
-    const hingePrice = 40;
+    const hingesQty = activeDoors;
+    const hingePrice = 150;
     
     const locksCost = lockerLockType !== "none" ? locksQty * lockPrice : 0;
     const hingesCost = hingesQty * hingePrice;
@@ -671,7 +688,7 @@ export default function CustomStorageCalculator() {
       ],
       hardware: [
         ...(lockerLockType !== "none" ? [{ label: lockerLockType === "cam" ? "Cam Locks" : lockerLockType === "digital" ? "Digital Locks" : "Padlock Hasps", qty: locksQty, cost: locksCost, unit: "pcs", unitPrice: lockPrice }] : []),
-        { label: "Hinges", qty: hingesQty, cost: hingesCost, unit: "pcs", unitPrice: hingePrice },
+        { label: "Hinges", qty: hingesQty, cost: hingesCost, unit: "pair", unitPrice: hingePrice },
         ...(lockerAddBottomLegs ? [{ label: "150mm Bottom Legs", qty: legsQty, cost: legsCost, unit: "pcs", unitPrice: legPrice }] : [])
       ]
     };

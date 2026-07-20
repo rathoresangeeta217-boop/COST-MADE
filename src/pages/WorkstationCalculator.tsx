@@ -170,6 +170,7 @@ export function calculateWorkstationCost({
   topThickness,
   boardId,
   legId,
+  legCountOverride = 0,
   boardLegType,
   metalLegStyle,
   metalLegPipeSize,
@@ -282,7 +283,7 @@ export function calculateWorkstationCost({
     unitLabel: string;
   }[] = [];
 
-  const legFrames = cols + 1; // Number of vertical supports
+  const legFrames = legCountOverride && legCountOverride > 0 ? legCountOverride : cols + 1; // Number of vertical supports
   const clusterDepth = depth * rows;
 
   if (legId === "board") {
@@ -784,6 +785,7 @@ export default function WorkstationCalculator() {
   }, [boardId, quality, topThickness]);
 
   const [legId, setLegId] = useState<string>("board");
+  const [legCountOverride, setLegCountOverride] = useState<number>(0); // 0 means default
   const [boardLegType, setBoardLegType] = useState<string>("full"); // 'full', 'shorter'
   const [metalLegStyle, setMetalLegStyle] = useState<string>("straight"); // 'straight', 'u_shape'
   const [metalLegPipeSize, setMetalLegPipeSize] = useState<string>("40x40"); // '40x40', '50x50'
@@ -824,6 +826,7 @@ export default function WorkstationCalculator() {
         if (c.marbleTypeId !== undefined) setMarbleTypeId(c.marbleTypeId);
         if (c.boardId !== undefined) setBoardId(c.boardId);
         if (c.legId !== undefined) setLegId(c.legId);
+        if (c.legCountOverride !== undefined) setLegCountOverride(c.legCountOverride);
         if (c.boardLegType !== undefined) setBoardLegType(c.boardLegType);
         if (c.metalLegStyle !== undefined) setMetalLegStyle(c.metalLegStyle);
         if (c.metalLegPipeSize !== undefined) setMetalLegPipeSize(c.metalLegPipeSize);
@@ -896,6 +899,7 @@ export default function WorkstationCalculator() {
       topThickness,
       boardId,
       legId,
+      legCountOverride,
       boardLegType,
       metalLegStyle,
       metalLegPipeSize,
@@ -930,6 +934,7 @@ export default function WorkstationCalculator() {
     topThickness,
     boardId,
     legId,
+    legCountOverride,
     boardLegType,
     metalLegStyle,
     metalLegPipeSize,
@@ -1347,6 +1352,7 @@ export default function WorkstationCalculator() {
                   </select>
                 )}
               </div>
+
               <div>
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap">
                   Depth/Person
@@ -1540,6 +1546,19 @@ export default function WorkstationCalculator() {
                     </div>
                   </>
                 )}
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Number of Leg Panels / Frames
+                  </label>
+                  <input
+                    type="number"
+                    value={legCountOverride === 0 ? '' : legCountOverride}
+                    onChange={(e) => setLegCountOverride(Number(e.target.value) || 0)}
+                    placeholder="Auto (based on layout)"
+                    className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
+                    min="0"
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Understructure (Legs)
