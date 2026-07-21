@@ -94,7 +94,7 @@ export const getAvailableThicknesses = (
   quality: string,
 ): number[] => {
   if (boardId === "crca_powder_coated" || boardId === "ss_304") {
-    return [0.8, 1, 1.2, 1.6, 2];
+    return [0.6, 0.8, 1, 1.2, 1.6, 2];
   }
   if (quality === "affordable") {
     switch (boardId) {
@@ -124,6 +124,21 @@ export const getAvailableThicknesses = (
         return [18];
     }
   }
+};
+
+export const formatThicknessLabel = (boardId: string, thickness: number): string => {
+  if (boardId === "crca_powder_coated" || boardId === "ss_304") {
+    switch (thickness) {
+      case 2: return "14 Gauge (2.0mm)";
+      case 1.6: return "16 Gauge (1.6mm)";
+      case 1.2: return "18 Gauge (1.2mm)";
+      case 1: return "20 Gauge (1.0mm)";
+      case 0.8: return "22 Gauge (0.8mm)";
+      case 0.6: return "24 Gauge (0.6mm)";
+      default: return `${thickness} mm`;
+    }
+  }
+  return `${thickness} mm`;
 };
 
 export const getBoardRate = (
@@ -515,7 +530,7 @@ export default function CustomStorageCalculator() {
 
   const activeBoard = { name: "Engineered Wood", id: "ew" };
 
-  const calcData = useMemo(() => {
+    const calcData = useMemo(() => {
     const getPieceRate = (label: string, defaultThickness: number) => {
         const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
         const overrideBoardId = pieceOverrides[key];
@@ -542,12 +557,39 @@ export default function CustomStorageCalculator() {
         return { label, l: length, w: length, h: depth, qty: 1, type: "Core", cost, totalSqFt: area, rate };
     });
 
-    const tbSqFt = 10;
-    const tbRate = getPieceRate("Top/Bottom", boardThickness);
-    const tbCost = tbSqFt * tbRate;
+    const pieces: any[] = [];
+    let materialCost = angularShelvesCost;
+    let boardsSqFt = angularSqFt;
 
+    const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number) => {
+      const area = (l * w) / 90000;
+      const totalArea = area * qty;
+      const rate = getPieceRate(label, defaultThk);
+      const cost = totalArea * rate;
+      pieces.push({ label, l, w, h: defaultThk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
+      materialCost += cost;
+      boardsSqFt += totalArea;
+      return cost;
+    };
+
+    // Main carcass
+    addPiece("Top/Bottom", width, depth, 2, boardThickness);
+    addPiece("Side Panels", height, depth, 2, boardThickness);
+    if (numBays > 1) {
+      addPiece("Vertical Partitions", height, depth, numBays - 1, boardThickness);
+    }
+    
+    // Back Panel
+    const backPanelThk = 6; // default back panel thickness
+    addPiece("Back Panel", width, height, 1, backPanelThk);
+
+    // Bays internals
     let totalDrawers = 0;
     let totalDoors = 0;
+    let totalShelves = 0;
+    
+    const bayWidth = width / (numBays || 1);
+    
     bays.forEach(bay => {
        if (bay.style === '1_drawer') totalDrawers += 1;
        if (bay.style === '2_drawers') totalDrawers += 2;
@@ -555,27 +597,44 @@ export default function CustomStorageCalculator() {
        if (bay.style === '1_drawer_1_shutter') { totalDrawers += 1; totalDoors += 1; }
        if (bay.style === 'shutter_solid' || bay.style === 'shutter_glass') totalDoors += 1;
        if (bay.style === 'shutters_double') totalDoors += 2;
+       totalShelves += (bay.shelves || 0);
     });
+    
+    if (totalShelves > 0) {
+       addPiece("Horizontal Shelves", bayWidth, depth, totalShelves, boardThickness);
+    }
+    
+    if (totalDoors > 0) {
+       addPiece("Shutters / Doors", bayWidth, height, totalDoors, boardThickness);
+    }
+    
+    if (totalDrawers > 0) {
+       // approximation for drawer fronts and boxes
+       addPiece("Drawer Fronts", bayWidth, 150, totalDrawers, boardThickness);
+       addPiece("Drawer Box Sides", depth, 100, totalDrawers * 2, 12);
+       addPiece("Drawer Box Back/Front", bayWidth - 30, 100, totalDrawers * 2, 12);
+       addPiece("Drawer Bottom", bayWidth - 30, depth, totalDrawers, 6);
+    }
+    
+    pieces.push(...angularPieces);
 
     const hardware = [
         { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 },
-        ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors, cost: totalDoors * 150, unit: "pair", unitPrice: 150 }] : []),
+        ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors * 2, cost: totalDoors * 2 * 150, unit: "pair", unitPrice: 150 }] : []),
         ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 250, unit: "pair", unitPrice: 250 }] : [])
     ];
     
     const hwCost = hardware.reduce((sum, h) => sum + h.cost, 0);
 
-    const baseMaterialCost = 4000 + tbCost + angularShelvesCost;
-    const baseSqFt = 40 + tbSqFt + angularSqFt;
-    const netManufacturing = baseMaterialCost + 1000 + hwCost + 3000 + 500 + 500;
+    const netManufacturing = materialCost + hwCost + 3000 + 500 + 500;
     const profit = netManufacturing * 0.25;
     
     return {
       totals: {
         grandTotal: netManufacturing + profit,
-        boardsSqFt: baseSqFt,
-        materialCost: baseMaterialCost,
-        backingCost: 1000,
+        boardsSqFt: boardsSqFt,
+        materialCost: materialCost,
+        backingCost: 0,
         hardwareCost: hwCost,
         laborCost: 3000,
         packagingCost: 500,
@@ -583,34 +642,85 @@ export default function CustomStorageCalculator() {
         netManufacturingCost: netManufacturing,
         profitMargin: profit
       },
-      pieces: [
-        { label: "Top/Bottom", l: width, w: width, h: depth, qty: 2, type: "Core", cost: tbCost, totalSqFt: tbSqFt, rate: tbRate },
-        ...angularPieces
-      ],
+      pieces,
       hardware,
-      bayWidth: width / (numBays || 1)
+      bayWidth
     };
-  }, [width, depth, numBays, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards, bays]);
+  }, [width, height, depth, numBays, numRows, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards, bays]);
 
-  const drawerCalcData = {
-    totals: {
-      grandTotal: 3000,
-      materialCost: 1000,
-      backingCost: 200,
-      hardwareCost: 500,
-      laborCost: 500,
-      packagingCost: 100,
-      toolingCost: 100,
-      netManufacturingCost: 2400,
-      profitMargin: 600
-    },
-    pieces: [
-      { label: "Drawer Front", l: drawerWidth, w: drawerWidth, h: drawerHeight, qty: 1, type: "Core", cost: 500, totalSqFt: 5, rate: 100 }
-    ],
-    hardware: [
+    const drawerCalcData = useMemo(() => {
+    const getPieceRate = (label: string, defaultThickness: number) => {
+        const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
+        const overrideBoardId = pieceOverrides[key];
+        const overrideThickness = thicknessOverrides[key];
+        
+        const bid = overrideBoardId && overrideBoardId !== 'default' ? overrideBoardId : boardId;
+        const thk = overrideThickness || defaultThickness;
+        const b = boards.find(b => b.id === bid);
+        if (!b) return 100;
+        return getBoardRate(bid, b.costPerSqFt, thk, quality);
+    };
+
+    const pieces: any[] = [];
+    let materialCost = 0;
+    let boardsSqFt = 0;
+
+    const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number) => {
+      const area = (l * w) / 90000;
+      const totalArea = area * qty;
+      const rate = getPieceRate(label, defaultThk);
+      const cost = totalArea * rate;
+      pieces.push({ label, l, w, h: defaultThk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
+      materialCost += cost;
+      boardsSqFt += totalArea;
+      return cost;
+    };
+
+    // Drawer Front
+    addPiece("Drawer Front", drawerWidth, drawerHeight, 1, boardThickness);
+    
+    // Drawer Box
+    const boxThickness = 12;
+    const bottomThickness = 6;
+    addPiece("Drawer Sides", drawerDepth, drawerHeight - 20, 2, boxThickness);
+    addPiece("Drawer Back/Front", drawerWidth - 30, drawerHeight - 20, 2, boxThickness);
+    addPiece("Drawer Bottom", drawerWidth - 30, drawerDepth, 1, bottomThickness);
+
+    let hardwareCost = 250; // Channels
+    const hardware = [
       { label: "Channels", qty: 1, cost: 250, unit: "pair", unitPrice: 250 }
-    ]
-  };
+    ];
+    
+    if (drawerLock) {
+      hardware.push({ label: "Lock", qty: 1, cost: 120, unit: "pcs", unitPrice: 120 });
+      hardwareCost += 120;
+    }
+    
+    if (drawerHandle) {
+      hardware.push({ label: "Handle", qty: 1, cost: 50, unit: "pcs", unitPrice: 50 });
+      hardwareCost += 50;
+    }
+
+    const netManufacturing = materialCost + hardwareCost + 500 + 100 + 100;
+    const profit = netManufacturing * 0.25;
+
+    return {
+      totals: {
+        grandTotal: netManufacturing + profit,
+        materialCost,
+        backingCost: 0,
+        boardsSqFt,
+        hardwareCost,
+        laborCost: 500,
+        packagingCost: 100,
+        toolingCost: 100,
+        netManufacturingCost: netManufacturing,
+        profitMargin: profit
+      },
+      pieces,
+      hardware
+    };
+  }, [drawerWidth, drawerHeight, drawerDepth, drawerLock, drawerHandle, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards]);
   const computedLockerWidth = lockerSizeMode === "box" ? lockerBoxWidth * lockerColumns : lockerWidth;
   const computedLockerHeight = lockerSizeMode === "box" ? lockerBoxHeight * lockerTiers : lockerHeight;
 
@@ -633,7 +743,8 @@ export default function CustomStorageCalculator() {
     const totalSqFt = backSqFt + sidesSqFt + tbSqFt + verticalDivSqFt + horizontalShelvesSqFt + doorsSqFt;
     
     // Cost
-    const metalRate = quality === "affordable" ? 150 : 220; // Default powder coated CRCA metal
+    const baseMetalRate = quality === "affordable" ? 150 : 220; // Default powder coated CRCA metal
+    const metalRate = getBoardRate("crca_powder_coated", baseMetalRate, lockerThickness, quality);
     const materialCost = totalSqFt * metalRate;
     
     // Hardware
@@ -1043,8 +1154,7 @@ export default function CustomStorageCalculator() {
                   className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                 >
                   {getAvailableThicknesses(boardId, quality).map((t) => (
-                    <option key={t} value={t}>
-                      {t} mm
+                    <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
                     </option>
                   ))}
                 </select>
@@ -1079,8 +1189,7 @@ export default function CustomStorageCalculator() {
                   className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                 >
                   {getAvailableThicknesses(boardId, quality).map((t) => (
-                    <option key={t} value={t}>
-                      {t} mm
+                    <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
                     </option>
                   ))}
                 </select>
@@ -1115,8 +1224,7 @@ export default function CustomStorageCalculator() {
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                   >
                     {getAvailableThicknesses(boardId, quality).map((t) => (
-                      <option key={t} value={t}>
-                        {t} mm
+                      <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
                       </option>
                     ))}
                   </select>
@@ -1149,8 +1257,7 @@ export default function CustomStorageCalculator() {
                       className="w-full px-2 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 outline-none"
                     >
                       {getAvailableThicknesses(woodenShelfId, quality).map((t) => (
-                        <option key={t} value={t}>
-                          {t} mm
+                        <option key={t} value={t}>{formatThicknessLabel(woodenShelfId, t)}
                         </option>
                       ))}
                     </select>
@@ -3346,8 +3453,7 @@ export default function CustomStorageCalculator() {
                   className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                 >
                   {getAvailableThicknesses(boardId, quality).map((t) => (
-                    <option key={t} value={t}>
-                      {t} mm
+                    <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
                     </option>
                   ))}
                 </select>
@@ -3382,8 +3488,7 @@ export default function CustomStorageCalculator() {
                   className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                 >
                   {getAvailableThicknesses(boardId, quality).map((t) => (
-                    <option key={t} value={t}>
-                      {t} mm
+                    <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
                     </option>
                   ))}
                 </select>
@@ -3418,8 +3523,7 @@ export default function CustomStorageCalculator() {
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                   >
                     {getAvailableThicknesses(boardId, quality).map((t) => (
-                      <option key={t} value={t}>
-                        {t} mm
+                      <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
                       </option>
                     ))}
                   </select>
@@ -3452,8 +3556,7 @@ export default function CustomStorageCalculator() {
                       className="w-full px-2 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 outline-none"
                     >
                       {getAvailableThicknesses(woodenShelfId, quality).map((t) => (
-                        <option key={t} value={t}>
-                          {t} mm
+                        <option key={t} value={t}>{formatThicknessLabel(woodenShelfId, t)}
                         </option>
                       ))}
                     </select>
@@ -3739,10 +3842,11 @@ export default function CustomStorageCalculator() {
                     onChange={(e) => setLockerThickness(Number(e.target.value))}
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                   >
-                    <option value={0.6}>0.6 mm</option>
-                    <option value={0.8}>0.8 mm</option>
-                    <option value={1.0}>1.0 mm</option>
-                    <option value={1.2}>1.2 mm</option>
+                    {[0.6, 0.8, 1, 1.2, 1.6, 2].map((t) => (
+                      <option key={t} value={t}>
+                        {formatThicknessLabel("crca_powder_coated", t)}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
