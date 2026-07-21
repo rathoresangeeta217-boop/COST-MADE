@@ -16,6 +16,13 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
+
+export const getEdgeBandingRate = (thickness: number) => {
+  if (thickness <= 18) return { rate: 13, label: "0.8mm" };
+  if (thickness <= 25) return { rate: 28, label: "2mm" };
+  return { rate: 48, label: "40mm" };
+};
+
 export const getBoards = (quality: string) => [
   { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
   { id: "mdf", name: "MDF", costPerSqFt: quality === "affordable" ? 38 : 61 },
@@ -255,15 +262,7 @@ export function calculateWorkstationCost({
 
   // Edge Banding for Table Top (only for Wood tops)
   if (topMaterialCategory !== "marble") {
-    let edgeBandingRate = 13;
-    let edgeBandingThickness = "0.8mm";
-    if (topThickness === 25) {
-      edgeBandingRate = 28;
-      edgeBandingThickness = "2mm";
-    } else if (topThickness === 36) {
-      edgeBandingRate = 48;
-      edgeBandingThickness = "0.40mm"; // User mentioned .40 mm
-    }
+    const { rate: edgeBandingRate, label: edgeBandingThickness } = getEdgeBandingRate(topThickness);
 
     const edgeBandingCost = topPerimeterM * edgeBandingRate;
     bCostTotal += edgeBandingCost;
@@ -307,10 +306,11 @@ export function calculateWorkstationCost({
 
     // Edge Banding for Legs 
     const legPerimeterM = ((legFrames * (legDepth * 2 + height * 2)) / 1000) * 1.2;
-    const legEdgeBandingCost = legPerimeterM * 13;
+    const { rate: legEbRate, label: legEbLabel } = getEdgeBandingRate(18); // assuming legs are 18mm board
+    const legEdgeBandingCost = legPerimeterM * legEbRate;
     bCostTotal += legEdgeBandingCost;
     bDetails.push({
-      label: `Legs Edge Banding (0.8mm, ${legPerimeterM.toFixed(3)}m)`,
+      label: `Legs Edge Banding (${legEbLabel}, ${legPerimeterM.toFixed(3)}m)`,
       cost: Math.round(legEdgeBandingCost),
     });
   } else if (legId === "metal_leg") {
@@ -421,10 +421,11 @@ export function calculateWorkstationCost({
 
       // Modesty Edge Banding
       const modestyEbLengthM = (modestyWidth / 1000) * 1.2 * actualPersons;
-      const modestyEbCost = modestyEbLengthM * 13; 
+      const { rate: modEbRate, label: modEbLabel } = getEdgeBandingRate(18); // assuming modesty is 18mm
+      const modestyEbCost = modestyEbLengthM * modEbRate; 
       bCostTotal += modestyEbCost;
       bDetails.push({
-        label: `Modesty Edge Banding (0.8mm, ${modestyEbLengthM.toFixed(3)}m)`,
+        label: `Modesty Edge Banding (${modEbLabel}, ${modestyEbLengthM.toFixed(3)}m)`,
         cost: Math.round(modestyEbCost),
       });
     } else {

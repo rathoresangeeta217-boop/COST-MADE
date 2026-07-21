@@ -60,6 +60,13 @@ const AnimatedDoorGroup: FC<{
 );
 
 // Reusing identical material pricing structures
+
+export const getEdgeBandingRate = (thickness: number) => {
+  if (thickness <= 18) return { rate: 13, label: "0.8mm" };
+  if (thickness <= 25) return { rate: 28, label: "2mm" };
+  return { rate: 48, label: "40mm" };
+};
+
 export const getBoards = (quality: string, category: string = "wooden") => {
   if (category === "metal") {
     return [
@@ -147,7 +154,18 @@ export const getBoardRate = (
   thickness: number,
   quality: string,
 ): number => {
-  if (boardId === "crca_powder_coated" || boardId === "ss_304") {
+    if (boardId === "crca_powder_coated") {
+    switch (thickness) {
+      case 2: return 125;
+      case 1.6: return 96;
+      case 1.2: return 72;
+      case 1: return 62;
+      case 0.8: return 52;
+      case 0.6: return 41;
+      default: return baseRate * (thickness / 1.2);
+    }
+  }
+  if (boardId === "ss_304") {
     return baseRate * (thickness / 1.2);
   }
   if (quality === "affordable") {
@@ -530,15 +548,19 @@ export default function CustomStorageCalculator() {
 
   const activeBoard = { name: "Engineered Wood", id: "ew" };
 
-    const calcData = useMemo(() => {
-    const getPieceRate = (label: string, defaultThickness: number) => {
+      const calcData = useMemo(() => {
+    const mainThk = constructionCategory === 'metal' ? angleThickness : boardThickness;
+    const shelfThk = constructionCategory === 'metal' ? (shelfMaterialType === 'wooden' ? woodenShelfThickness : angleThickness) : boardThickness;
+    const shelfBoardId = constructionCategory === 'metal' && shelfMaterialType === 'wooden' ? woodenShelfId : boardId;
+    
+    const getPieceRate = (label: string, defaultThickness: number, overrideBid?: string) => {
         const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
         const overrideBoardId = pieceOverrides[key];
         const overrideThickness = thicknessOverrides[key];
         
-        const bid = overrideBoardId && overrideBoardId !== 'default' ? overrideBoardId : boardId;
+        const bid = overrideBoardId && overrideBoardId !== 'default' ? overrideBoardId : (overrideBid || boardId);
         const thk = overrideThickness || defaultThickness;
-        const b = boards.find(b => b.id === bid);
+        const b = boards.find(b => b.id === bid) || getBoards(quality, 'wooden').find(b => b.id === bid);
         if (!b) return 100;
         return getBoardRate(bid, b.costPerSqFt, thk, quality);
     };
@@ -550,21 +572,21 @@ export default function CustomStorageCalculator() {
         const label = `Angular Shelf ${i+1}`;
         const length = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
         const area = (length * depth) / 90000;
-        const rate = getPieceRate(label, boardThickness);
+        const rate = getPieceRate(label, shelfThk, shelfBoardId);
         const cost = area * rate;
         angularSqFt += area;
         angularShelvesCost += cost;
-        return { label, l: length, w: length, h: depth, qty: 1, type: "Core", cost, totalSqFt: area, rate };
+        return { label, l: length, w: length, h: shelfThk, qty: 1, type: "Core", cost, totalSqFt: area, rate };
     });
 
     const pieces: any[] = [];
     let materialCost = angularShelvesCost;
     let boardsSqFt = angularSqFt;
 
-    const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number) => {
+    const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number, overrideBid?: string) => {
       const area = (l * w) / 90000;
       const totalArea = area * qty;
-      const rate = getPieceRate(label, defaultThk);
+      const rate = getPieceRate(label, defaultThk, overrideBid);
       const cost = totalArea * rate;
       pieces.push({ label, l, w, h: defaultThk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
       materialCost += cost;
@@ -573,14 +595,14 @@ export default function CustomStorageCalculator() {
     };
 
     // Main carcass
-    addPiece("Top/Bottom", width, depth, 2, boardThickness);
-    addPiece("Side Panels", height, depth, 2, boardThickness);
+    addPiece("Top/Bottom", width, depth, 2, mainThk);
+    addPiece("Side Panels", height, depth, 2, mainThk);
     if (numBays > 1) {
-      addPiece("Vertical Partitions", height, depth, numBays - 1, boardThickness);
+      addPiece("Vertical Partitions", height, depth, numBays - 1, mainThk);
     }
     
     // Back Panel
-    const backPanelThk = 6; // default back panel thickness
+    const backPanelThk = constructionCategory === 'metal' ? mainThk : 6;
     addPiece("Back Panel", width, height, 1, backPanelThk);
 
     // Bays internals
@@ -601,19 +623,21 @@ export default function CustomStorageCalculator() {
     });
     
     if (totalShelves > 0) {
-       addPiece("Horizontal Shelves", bayWidth, depth, totalShelves, boardThickness);
+       addPiece("Horizontal Shelves", bayWidth, depth, totalShelves, shelfThk, shelfBoardId);
     }
     
     if (totalDoors > 0) {
-       addPiece("Shutters / Doors", bayWidth, height, totalDoors, boardThickness);
+       addPiece("Shutters / Doors", bayWidth, height, totalDoors, mainThk);
     }
     
     if (totalDrawers > 0) {
        // approximation for drawer fronts and boxes
-       addPiece("Drawer Fronts", bayWidth, 150, totalDrawers, boardThickness);
-       addPiece("Drawer Box Sides", depth, 100, totalDrawers * 2, 12);
-       addPiece("Drawer Box Back/Front", bayWidth - 30, 100, totalDrawers * 2, 12);
-       addPiece("Drawer Bottom", bayWidth - 30, depth, totalDrawers, 6);
+       const boxThk = constructionCategory === 'metal' ? mainThk : 12;
+       const bottomThk = constructionCategory === 'metal' ? mainThk : 6;
+       addPiece("Drawer Fronts", bayWidth, 150, totalDrawers, mainThk);
+       addPiece("Drawer Box Sides", depth, 100, totalDrawers * 2, boxThk);
+       addPiece("Drawer Box Back/Front", bayWidth - 30, 100, totalDrawers * 2, boxThk);
+       addPiece("Drawer Bottom", bayWidth - 30, depth, totalDrawers, bottomThk);
     }
     
     pieces.push(...angularPieces);
@@ -626,7 +650,11 @@ export default function CustomStorageCalculator() {
     
     const hwCost = hardware.reduce((sum, h) => sum + h.cost, 0);
 
-    const netManufacturing = materialCost + hwCost + 3000 + 500 + 500;
+    const laborCost = Math.max(500, boardsSqFt * 40);
+    const packagingCost = Math.max(100, boardsSqFt * 15);
+    const toolingCost = Math.max(100, boardsSqFt * 10);
+
+    const netManufacturing = materialCost + hwCost + laborCost + packagingCost + toolingCost;
     const profit = netManufacturing * 0.25;
     
     return {
@@ -636,9 +664,9 @@ export default function CustomStorageCalculator() {
         materialCost: materialCost,
         backingCost: 0,
         hardwareCost: hwCost,
-        laborCost: 3000,
-        packagingCost: 500,
-        toolingCost: 500,
+        laborCost,
+        packagingCost,
+        toolingCost,
         netManufacturingCost: netManufacturing,
         profitMargin: profit
       },
@@ -646,17 +674,17 @@ export default function CustomStorageCalculator() {
       hardware,
       bayWidth
     };
-  }, [width, height, depth, numBays, numRows, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards, bays]);
+  }, [width, height, depth, numBays, numRows, angularShelves, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards, bays, constructionCategory, angleThickness, shelfMaterialType, woodenShelfId, woodenShelfThickness]);
 
     const drawerCalcData = useMemo(() => {
-    const getPieceRate = (label: string, defaultThickness: number) => {
+    const getPieceRate = (label: string, defaultThickness: number, overrideBid?: string) => {
         const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
         const overrideBoardId = pieceOverrides[key];
         const overrideThickness = thicknessOverrides[key];
         
-        const bid = overrideBoardId && overrideBoardId !== 'default' ? overrideBoardId : boardId;
+        const bid = overrideBoardId && overrideBoardId !== 'default' ? overrideBoardId : (overrideBid || boardId);
         const thk = overrideThickness || defaultThickness;
-        const b = boards.find(b => b.id === bid);
+        const b = boards.find(b => b.id === bid) || getBoards(quality, 'wooden').find(b => b.id === bid);
         if (!b) return 100;
         return getBoardRate(bid, b.costPerSqFt, thk, quality);
     };
@@ -665,10 +693,10 @@ export default function CustomStorageCalculator() {
     let materialCost = 0;
     let boardsSqFt = 0;
 
-    const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number) => {
+    const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number, overrideBid?: string) => {
       const area = (l * w) / 90000;
       const totalArea = area * qty;
-      const rate = getPieceRate(label, defaultThk);
+      const rate = getPieceRate(label, defaultThk, overrideBid);
       const cost = totalArea * rate;
       pieces.push({ label, l, w, h: defaultThk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
       materialCost += cost;
@@ -677,19 +705,27 @@ export default function CustomStorageCalculator() {
     };
 
     // Drawer Front
-    addPiece("Drawer Front", drawerWidth, drawerHeight, 1, boardThickness);
+    const mainThk = constructionCategory === 'metal' ? angleThickness : boardThickness;
+    addPiece("Drawer Front", drawerWidth, drawerHeight, 1, mainThk);
     
     // Drawer Box
-    const boxThickness = 12;
-    const bottomThickness = 6;
+    const boxThickness = constructionCategory === 'metal' ? mainThk : 12;
+    const bottomThickness = constructionCategory === 'metal' ? mainThk : 6;
     addPiece("Drawer Sides", drawerDepth, drawerHeight - 20, 2, boxThickness);
     addPiece("Drawer Back/Front", drawerWidth - 30, drawerHeight - 20, 2, boxThickness);
+    
     addPiece("Drawer Bottom", drawerWidth - 30, drawerDepth, 1, bottomThickness);
 
-    let hardwareCost = 250; // Channels
+    const drawerEbMeters = (2 * (drawerWidth + drawerHeight)) / 1000 * 1.2;
+    const { rate: ebRate, label: ebLabel } = getEdgeBandingRate(mainThk);
+    const ebCost = constructionCategory === 'metal' ? 0 : drawerEbMeters * ebRate;
+
+    let hardwareCost = 250 + ebCost; // Channels + EB
     const hardware = [
-      { label: "Channels", qty: 1, cost: 250, unit: "pair", unitPrice: 250 }
+      { label: "Channels", qty: 1, cost: 250, unit: "pair", unitPrice: 250 },
+      ...(constructionCategory !== 'metal' ? [{ label: `Edge Banding (${ebLabel})`, qty: Number(drawerEbMeters.toFixed(2)), cost: ebCost, unit: "m", unitPrice: ebRate }] : [])
     ];
+
     
     if (drawerLock) {
       hardware.push({ label: "Lock", qty: 1, cost: 120, unit: "pcs", unitPrice: 120 });
@@ -720,7 +756,7 @@ export default function CustomStorageCalculator() {
       pieces,
       hardware
     };
-  }, [drawerWidth, drawerHeight, drawerDepth, drawerLock, drawerHandle, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards]);
+  }, [drawerWidth, drawerHeight, drawerDepth, drawerLock, drawerHandle, pieceOverrides, thicknessOverrides, boardId, boardThickness, quality, boards, constructionCategory, angleThickness]);
   const computedLockerWidth = lockerSizeMode === "box" ? lockerBoxWidth * lockerColumns : lockerWidth;
   const computedLockerHeight = lockerSizeMode === "box" ? lockerBoxHeight * lockerTiers : lockerHeight;
 
@@ -803,7 +839,7 @@ export default function CustomStorageCalculator() {
         ...(lockerAddBottomLegs ? [{ label: "150mm Bottom Legs", qty: legsQty, cost: legsCost, unit: "pcs", unitPrice: legPrice }] : [])
       ]
     };
-  }, [computedLockerWidth, computedLockerHeight, lockerDepth, lockerColumns, lockerTiers, quality, removedLockerDoors, lockerLockType, lockerCncDesign, lockerAddBottomLegs]);
+  }, [computedLockerWidth, computedLockerHeight, lockerDepth, lockerColumns, lockerTiers, quality, removedLockerDoors, lockerLockType, lockerCncDesign, lockerAddBottomLegs, lockerThickness]);
 
   const copySpecifications = () => { alert("Copied"); };
   const copyImagePrompt = () => { alert("Copied"); };
