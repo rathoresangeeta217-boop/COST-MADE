@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+with open('src/lib/useFirestoreSync.ts', 'w') as f:
+    f.write('''import { useEffect, useRef } from 'react';
 import { useProjectStore } from '../store/useProjectStore';
 import { useAuth } from './AuthContext';
 import { db } from './firebase';
@@ -66,3 +67,4 @@ export function useFirestoreSync() {
     syncProjects();
   }, [projects, user]);
 }
+''')

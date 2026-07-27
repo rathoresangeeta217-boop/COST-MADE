@@ -205,6 +205,7 @@ export function calculateWorkstationCost({
   marbleTypeId = "onyx",
   numPersons = 1,
   layout = "linear",
+  isHeightAdjustable = false,
 }: any) {
   const boards = getBoards(quality);
   const board = boards.find((b) => b.id === boardId)!;
@@ -285,7 +286,18 @@ export function calculateWorkstationCost({
   const legFrames = legCountOverride && legCountOverride > 0 ? legCountOverride : cols + 1; // Number of vertical supports
   const clusterDepth = depth * rows;
 
-  if (legId === "board") {
+  if (layout === "linear" && isHeightAdjustable) {
+    const frameCost = width <= 1200 ? 9500 : 13500;
+    const totalHACost = frameCost * numPersons;
+    hCost += totalHACost;
+    hDetails.push({
+      label: `Height Adjustment Frame (${width}mm W)`,
+      qty: numPersons,
+      unitPrice: frameCost,
+      unitLabel: "pcs",
+      cost: totalHACost,
+    });
+  } else if (legId === "board") {
     // wooden side legs (gable ends)
     let legDepth = clusterDepth;
     if (boardLegType === "shorter") {
@@ -770,6 +782,7 @@ export default function WorkstationCalculator() {
   const [height, setHeight] = useState<number>(750); // mm
   const [numPersons, setNumPersons] = useState<number>(1);
   const [layout, setLayout] = useState<string>("linear"); // 'linear', 'back_to_back'
+  const [isHeightAdjustable, setIsHeightAdjustable] = useState<boolean>(false);
   const [topThickness, setTopThickness] = useState<number>(18); // mm
   const [quality, setQuality] = useState<string>("standard");
 
@@ -850,6 +863,9 @@ export default function WorkstationCalculator() {
         if (c.cpuStandType !== undefined) setCpuStandType(c.cpuStandType);
         if (c.innerMica !== undefined) setInnerMica(c.innerMica);
         if (c.outerMica !== undefined) setOuterMica(c.outerMica);
+        if (c.isHeightAdjustable !== undefined) setIsHeightAdjustable(c.isHeightAdjustable);
+        if (c.layout !== undefined) setLayout(c.layout);
+        if (c.numPersons !== undefined) setNumPersons(c.numPersons);
       }
     }
   }, [editItemId, projectId, projects]);
@@ -925,6 +941,7 @@ export default function WorkstationCalculator() {
       outerMica,
       topMaterialCategory,
       marbleTypeId,
+      isHeightAdjustable,
     });
   }, [
     width,
@@ -961,6 +978,7 @@ export default function WorkstationCalculator() {
     outerMica,
     topMaterialCategory,
     marbleTypeId,
+    isHeightAdjustable,
   ]);
 
   const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -1314,6 +1332,17 @@ export default function WorkstationCalculator() {
                   <option value="linear">Linear</option>
                   <option value="back_to_back">Back-to-Back</option>
                 </select>
+                {layout === "linear" && (
+                  <label className="flex items-start gap-1.5 mt-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isHeightAdjustable}
+                      onChange={(e) => setIsHeightAdjustable(e.target.checked)}
+                      className="w-3.5 h-3.5 mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-[10px] font-medium text-gray-600 leading-tight">Height Adjustable</span>
+                  </label>
+                )}
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap" title="Number of Sitting">
@@ -1548,6 +1577,8 @@ export default function WorkstationCalculator() {
                   </>
                 )}
 
+                {!(layout === 'linear' && isHeightAdjustable) && (
+                  <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Understructure (Legs)
@@ -1622,6 +1653,8 @@ export default function WorkstationCalculator() {
                       </select>
                     </div>
                   </>
+                )}
+                </>
                 )}
               </div>
 
@@ -1998,7 +2031,8 @@ export default function WorkstationCalculator() {
                           includeModesty, modestyType, modestyFinish, cncDesignOnModesty, wireManagement,
  flapBoxRate,
                           includePedestal, includeDrawer, drawerCount, singleDrawerType,
-                          cpuStandType, innerMica, outerMica
+                          cpuStandType, innerMica, outerMica,
+                          isHeightAdjustable, layout, numPersons
                         },
                         costSummary: {
                           totalCost,

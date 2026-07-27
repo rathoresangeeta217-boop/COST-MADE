@@ -151,66 +151,65 @@ export const formatThicknessLabel = (boardId: string, thickness: number): string
 export const getBoardRate = (
   boardId: string,
   baseRate: number,
-  thickness: number,
+  thickness: number | string,
   quality: string,
 ): number => {
+    const numThk = Number(thickness);
     if (boardId === "crca_powder_coated") {
-    switch (thickness) {
-      case 2: return 125;
-      case 1.6: return 96;
-      case 1.2: return 72;
-      case 1: return 62;
-      case 0.8: return 52;
-      case 0.6: return 41;
-      default: return baseRate * (thickness / 1.2);
-    }
+    if (numThk === 2) return 125;
+    if (numThk === 1.6) return 96;
+    if (numThk === 1.2) return 72;
+    if (numThk === 1) return 62;
+    if (numThk === 0.8) return 52;
+    if (numThk === 0.6) return 41;
+    return baseRate * (numThk / 1.2);
   }
   if (boardId === "ss_304") {
-    return baseRate * (thickness / 1.2);
+    return baseRate * (numThk / 1.2);
   }
   if (quality === "affordable") {
     if (boardId === "plpb") {
-      if (thickness === 11) return 27;
-      if (thickness === 17) return 29;
-      if (thickness === 18) return 34;
-      if (thickness === 25) return 42;
+      if (numThk === 11) return 27;
+      if (numThk === 17) return 29;
+      if (numThk === 18) return 34;
+      if (numThk === 25) return 42;
     }
     if (boardId === "hdhmr") {
-      if (Math.abs(thickness - 16.75) < 0.1) return 88;
-      if (thickness === 18) return 99;
-      if (thickness === 25) return 135;
+      if (Math.abs(numThk - 16.75) < 0.1) return 88;
+      if (numThk === 18) return 99;
+      if (numThk === 25) return 135;
     }
     if (boardId === "ply_laminate") {
-      if (thickness === 6) return 22;
-      if (thickness === 9) return 35;
-      if (thickness === 12) return 38;
-      if (thickness === 15) return 46;
-      if (thickness === 16) return 46;
-      if (thickness === 18) return 55;
+      if (numThk === 6) return 22;
+      if (numThk === 9) return 35;
+      if (numThk === 12) return 38;
+      if (numThk === 15) return 46;
+      if (numThk === 16) return 46;
+      if (numThk === 18) return 55;
     }
     if (boardId === "mdf") {
-      if (thickness === 17) return 55;
-      if (thickness === 18) return 60;
-      if (thickness === 25) return 80;
-      if (thickness === 35) return 112;
+      if (numThk === 17) return 55;
+      if (numThk === 18) return 60;
+      if (numThk === 25) return 80;
+      if (numThk === 35) return 112;
     }
   } else {
     // Standard quality logic
     if (boardId === "plpb") {
-      if (thickness === 18) return 49;
-      if (thickness === 25) return 63;
-      if (thickness === 36) return 98;
+      if (numThk === 18) return 49;
+      if (numThk === 25) return 63;
+      if (numThk === 36) return 98;
     }
     if (boardId === "hdhmr") {
-      if (thickness === 25) return 108;
+      if (numThk === 25) return 108;
     }
     if (boardId === "mdf") {
-      if (thickness === 18) return 61;
-      if (thickness === 25) return 83;
-      if (thickness === 36) return 122;
+      if (numThk === 18) return 61;
+      if (numThk === 25) return 83;
+      if (numThk === 36) return 122;
     }
   }
-  return baseRate * (thickness / 18);
+  return baseRate * (numThk / 18);
 };
 
 const HARDWARE_CHANNEL_COST = 250;
@@ -550,6 +549,7 @@ export default function CustomStorageCalculator() {
 
       const calcData = useMemo(() => {
     const mainThk = constructionCategory === 'metal' ? angleThickness : boardThickness;
+    console.log(`calcData running... constructionCategory: ${constructionCategory}, angleThickness: ${angleThickness}, boardId: ${boardId}`);
     const shelfThk = constructionCategory === 'metal' ? (shelfMaterialType === 'wooden' ? woodenShelfThickness : angleThickness) : boardThickness;
     const shelfBoardId = constructionCategory === 'metal' && shelfMaterialType === 'wooden' ? woodenShelfId : boardId;
     
@@ -642,10 +642,22 @@ export default function CustomStorageCalculator() {
     
     pieces.push(...angularPieces);
 
+    const topBottomM = 2 * (width + depth) * 2 / 1000;
+    const sidePanelsM = 2 * (height + depth) * 2 / 1000;
+    const partitionsM = numBays > 1 ? (numBays - 1) * 2 * (height + depth) / 1000 : 0;
+    const shelvesM = totalShelves > 0 ? totalShelves * 2 * (bayWidth + depth) / 1000 : 0;
+    const doorsM = totalDoors > 0 ? totalDoors * 2 * (bayWidth + height) / 1000 : 0;
+    const drawersM = totalDrawers > 0 ? totalDrawers * 2 * (bayWidth + 150) / 1000 : 0;
+
+    let totalEbMeters = (topBottomM + sidePanelsM + partitionsM + shelvesM + doorsM + drawersM) * 1.2;
+    const { rate: ebRate, label: ebLabel } = getEdgeBandingRate(mainThk);
+    const ebCost = constructionCategory === 'metal' ? 0 : totalEbMeters * ebRate;
+
     const hardware = [
         { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 },
         ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors * 2, cost: totalDoors * 2 * 150, unit: "pair", unitPrice: 150 }] : []),
-        ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 250, unit: "pair", unitPrice: 250 }] : [])
+        ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 250, unit: "pair", unitPrice: 250 }] : []),
+        ...(constructionCategory !== 'metal' ? [{ label: `Edge Banding (${ebLabel})`, qty: Number(totalEbMeters.toFixed(2)), cost: ebCost, unit: "m", unitPrice: ebRate }] : [])
     ];
     
     const hwCost = hardware.reduce((sum, h) => sum + h.cost, 0);
@@ -656,6 +668,7 @@ export default function CustomStorageCalculator() {
 
     const netManufacturing = materialCost + hwCost + laborCost + packagingCost + toolingCost;
     const profit = netManufacturing * 0.25;
+    console.log(`calcData - angleThickness: ${angleThickness}, boardId: ${boardId}, materialCost: ${materialCost}, grandTotal: ${netManufacturing + profit}`);
     
     return {
       totals: {
