@@ -163,7 +163,7 @@ const HARDWARE_CHANNEL_COST = 235; // per pair
 const HARDWARE_HANDLE_COST = 50; // per piece
 const HARDWARE_LOCK_COST = 90; // per piece
 
-const CPU_TROLLEY_COST = 350;
+const CPU_TROLLEY_COST = 800;
 const CPU_MOUNT_COST = 550;
 
 export const MARBLE_TYPES = [
@@ -192,6 +192,11 @@ export function calculateWorkstationCost({
   modestyFinish = "plain",
   cncDesignOnModesty = false,
   wireManagement,
+  cpuStandCount = 0,
+  flapBoxCount = 0,
+  wireRacewayCount = 0,
+  includeFlapBox = false,
+  includeWireRaceway = false,
   flapBoxRate = 450,
   includePedestal,
   includeDrawer = false,
@@ -286,17 +291,30 @@ export function calculateWorkstationCost({
   const legFrames = legCountOverride && legCountOverride > 0 ? legCountOverride : cols + 1; // Number of vertical supports
   const clusterDepth = depth * rows;
 
-  if (layout === "linear" && isHeightAdjustable) {
-    const frameCost = width <= 1200 ? 9500 : 13500;
-    const totalHACost = frameCost * numPersons;
-    hCost += totalHACost;
-    hDetails.push({
-      label: `Height Adjustment Frame (${width}mm W)`,
-      qty: numPersons,
-      unitPrice: frameCost,
-      unitLabel: "pcs",
-      cost: totalHACost,
-    });
+  if (isHeightAdjustable) {
+    if (layout === "linear") {
+      const frameCost = width <= 1200 ? 9500 : 13500;
+      const totalHACost = frameCost * numPersons;
+      hCost += totalHACost;
+      hDetails.push({
+        label: `Height Adjustment Frame (${width}mm W)`,
+        qty: numPersons,
+        unitPrice: frameCost,
+        unitLabel: "pcs",
+        cost: totalHACost,
+      });
+    } else {
+      const frameCost = 32000;
+      const totalHACost = frameCost * cols;
+      hCost += totalHACost;
+      hDetails.push({
+        label: `Height Adjustment Frame Face-to-Face (${width}mm W)`,
+        qty: cols,
+        unitPrice: frameCost,
+        unitLabel: "pcs",
+        cost: totalHACost,
+      });
+    }
   } else if (legId === "board") {
     // wooden side legs (gable ends)
     let legDepth = clusterDepth;
@@ -314,6 +332,9 @@ export function calculateWorkstationCost({
     bDetails.push({
       label: `Board Side Legs (x${legFrames}) - ${legDepth}D${micaSuffix} (${sideLegAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(legsCost),
+      w: legDepth,
+      l: height,
+      qty: legFrames
     });
 
     // Edge Banding for Legs 
@@ -408,15 +429,19 @@ export function calculateWorkstationCost({
       modestyHeight = 450; 
     }
     const modestyWidth = width - 18;
-    const modestyAreaSqMm = modestyWidth * modestyHeight * actualPersons;
+    const modestyQty = layout === "back_to_back" ? cols : actualPersons;
+    const modestyAreaSqMm = modestyWidth * modestyHeight * modestyQty;
     const modestyAreaSqFt = modestyAreaSqMm / 90000;
 
     if (legId === "board") {
       modCost = modestyAreaSqFt * (board.costPerSqFt + totalMicaRate) * (modestyFinish === "fluted" ? 3 : 1);
       bCostTotal += modCost;
       bDetails.push({
-        label: `Modesty Panel (${modestyFinish}) x${actualPersons} (${modestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
+        label: `Modesty Panel (${modestyFinish}) x${modestyQty} (${modestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
         cost: Math.round(modCost),
+        w: modestyWidth,
+        l: modestyHeight,
+        qty: modestyQty
       });
 
       if (cncDesignOnModesty) {
@@ -432,7 +457,7 @@ export function calculateWorkstationCost({
       }
 
       // Modesty Edge Banding
-      const modestyEbLengthM = (modestyWidth / 1000) * 1.2 * actualPersons;
+      const modestyEbLengthM = (modestyWidth / 1000) * 1.2 * modestyQty;
       const { rate: modEbRate, label: modEbLabel } = getEdgeBandingRate(18); // assuming modesty is 18mm
       const modestyEbCost = modestyEbLengthM * modEbRate; 
       bCostTotal += modestyEbCost;
@@ -446,7 +471,7 @@ export function calculateWorkstationCost({
       modCost = modestyAreaSqFt * metalModestyRateSqFt;
       hCost += modCost;
       hDetails.push({
-        label: `Metal Modesty Panel (${cncDesignOnModesty ? "CNC Design" : "Plain"})`,
+        label: `Metal Modesty Panel x${modestyQty} (${cncDesignOnModesty ? "CNC Design" : "Plain"})`,
         qty: Number(modestyAreaSqFt.toFixed(2)),
         unitPrice: metalModestyRateSqFt,
         unitLabel: "sqft",
@@ -464,7 +489,7 @@ export function calculateWorkstationCost({
     if (screenId === "board") {
       sCost = sAreaSqFt * (board.costPerSqFt + totalMicaRate);
       bCostTotal += sCost;
-      bDetails.push({ label: `Board Partition x${screenCount}${micaSuffix} (${sAreaSqFt.toFixed(2)} sq.ft)`, cost: Math.round(sCost) });
+      bDetails.push({ label: `Board Partition x${screenCount}${micaSuffix} (${sAreaSqFt.toFixed(2)} sq.ft)`, cost: Math.round(sCost), w: effectiveScreenWidth, l: screenHeight, qty: screenCount });
     } else {
       sCost = sAreaSqFt * screenType.costPerSqFt;
     }
@@ -493,7 +518,7 @@ export function calculateWorkstationCost({
     if (sideScreenId === "board") {
       sideSCost = sAreaSqFtSide * (board.costPerSqFt + totalMicaRate);
       bCostTotal += sideSCost;
-      bDetails.push({ label: `Side Board Partition x${sideScreenCount}${micaSuffix} (${sAreaSqFtSide.toFixed(2)} sq.ft)`, cost: Math.round(sideSCost) });
+      bDetails.push({ label: `Side Board Partition x${sideScreenCount}${micaSuffix} (${sAreaSqFtSide.toFixed(2)} sq.ft)`, cost: Math.round(sideSCost), w: effectiveSideDepth, l: sideScreenHeight, qty: sideScreenCount });
     } else {
       sideSCost = sAreaSqFtSide * sideScreenType.costPerSqFt;
     }
@@ -515,27 +540,36 @@ export function calculateWorkstationCost({
   }
 
   // 5. Wire Management
-  if (wireManagement === "raceway") {
-    const cost = flapBoxRate * actualPersons;
+  let finalIncludeFlapBox = includeFlapBox || wireManagement === "raceway";
+  let finalIncludeWireRaceway = includeWireRaceway || wireManagement === "wire_raceway";
+  
+  if (finalIncludeFlapBox) {
+    const qty = flapBoxCount > 0 ? flapBoxCount : actualPersons;
+    const cost = flapBoxRate * qty;
     hCost += cost;
     hDetails.push({
       label: "Alu Flap Box",
-      qty: actualPersons,
+      qty: qty,
       unitPrice: flapBoxRate,
       unitLabel: "Set",
       cost: cost,
     });
-  } else if (wireManagement === "wire_raceway") {
-    const cost = METAL_RACEWAY_COST * actualPersons;
+  }
+  
+  if (finalIncludeWireRaceway) {
+    const qty = wireRacewayCount > 0 ? wireRacewayCount : actualPersons;
+    const cost = METAL_RACEWAY_COST * qty;
     hCost += cost;
     hDetails.push({
       label: "Metal Wire Raceway Tray",
-      qty: actualPersons,
+      qty: qty,
       unitPrice: METAL_RACEWAY_COST,
       unitLabel: "Set",
       cost: cost,
     });
-  } else if (wireManagement === "grommet") {
+  }
+  
+  if (wireManagement === "grommet") {
     const grommetCount = 2 * actualPersons;
     const gCost = grommetCount * GROMMET_COST;
     hCost += gCost;
@@ -585,18 +619,29 @@ export function calculateWorkstationCost({
     const totalDrawers = drawerCount * actualPersons;
 
     // Front/Back + Sides + Bottom approx
-    const drawerAreaSqMm = totalDrawers * (
+    const drawerSidesAreaSqMm = totalDrawers * (
       (drawerWidth * drawerHeight * 2) +
-      (drawerDepth * drawerHeight * 2) +
-      (drawerWidth * drawerDepth)
+      (drawerDepth * drawerHeight * 2)
     );
+    const drawerBottomAreaSqMm = totalDrawers * (drawerWidth * drawerDepth);
 
-    const drawerAreaSqFt = drawerAreaSqMm / 90000;
-    const drawerBoardCost = drawerAreaSqFt * (board.costPerSqFt + totalMicaRate);
-    bCostTotal += drawerBoardCost;
+    const drawerSidesAreaSqFt = drawerSidesAreaSqMm / 90000;
+    const drawerBottomAreaSqFt = drawerBottomAreaSqMm / 90000;
+
+    const bottomRate = getTopRate(board.id, board.costPerSqFt, 9, quality);
+    const sidesRate = board.costPerSqFt + totalMicaRate;
+
+    const drawerSidesCost = drawerSidesAreaSqFt * sidesRate;
+    const drawerBottomCost = drawerBottomAreaSqFt * (bottomRate + totalMicaRate);
+
+    bCostTotal += (drawerSidesCost + drawerBottomCost);
     bDetails.push({
-      label: `Drawers (${totalDrawers}x) Board${micaSuffix} (${drawerAreaSqFt.toFixed(2)} sq.ft)`,
-      cost: Math.round(drawerBoardCost),
+      label: `Drawer Box Panels (${totalDrawers}x) Board${micaSuffix} (${drawerSidesAreaSqFt.toFixed(2)} sq.ft)`,
+      cost: Math.round(drawerSidesCost),
+    });
+    bDetails.push({
+      label: `Drawer Bottoms (9mm) (${totalDrawers}x)${micaSuffix} (${drawerBottomAreaSqFt.toFixed(2)} sq.ft)`,
+      cost: Math.round(drawerBottomCost),
     });
 
     const channelCost = totalDrawers * HARDWARE_CHANNEL_COST;
@@ -722,12 +767,12 @@ export function calculateWorkstationCost({
       }
     }
     const totalDrawers = drawerCount * actualPersons;
-    const drawerAreaSqMm = totalDrawers * (
+    const drawerSidesAreaSqMm = totalDrawers * (
       (drawerWidth * drawerHeight * 2) +
-      (drawerDepth * drawerHeight * 2) +
-      (drawerWidth * drawerDepth)
+      (drawerDepth * drawerHeight * 2)
     );
-    boardAreaSqMm += drawerAreaSqMm;
+    const drawerBottomAreaSqMm = totalDrawers * (drawerWidth * drawerDepth);
+    boardAreaSqMm += drawerSidesAreaSqMm + drawerBottomAreaSqMm; // Summed for simple material BOM approx
   }
 
   const tSqFt = (boardAreaSqMm / 90000).toFixed(2);
@@ -813,7 +858,12 @@ export default function WorkstationCalculator() {
   const [modestyType, setModestyType] = useState<string>("standard");
   const [modestyFinish, setModestyFinish] = useState<string>("plain"); // 'standard', 'short', 'shorter'
   const [cncDesignOnModesty, setCncDesignOnModesty] = useState<boolean>(false);
-  const [wireManagement, setWireManagement] = useState<string>("raceway"); // 'grommet', 'raceway', 'none'
+  const [wireManagement, setWireManagement] = useState<string>("raceway"); // legacy
+  const [cpuStandCount, setCpuStandCount] = useState<number>(0);
+  const [flapBoxCount, setFlapBoxCount] = useState<number>(0);
+  const [wireRacewayCount, setWireRacewayCount] = useState<number>(0);
+  const [includeFlapBox, setIncludeFlapBox] = useState<boolean>(false);
+  const [includeWireRaceway, setIncludeWireRaceway] = useState<boolean>(false);
   const [flapBoxRate, setFlapBoxRate] = useState<number>(450);
   const [includePedestal, setIncludePedestal] = useState<boolean>(false);
   const [includeDrawer, setIncludeDrawer] = useState<boolean>(false);
@@ -855,6 +905,11 @@ export default function WorkstationCalculator() {
         if (c.modestyFinish !== undefined) setModestyFinish(c.modestyFinish);
         if (c.cncDesignOnModesty !== undefined) setCncDesignOnModesty(c.cncDesignOnModesty);
         if (c.wireManagement !== undefined) setWireManagement(c.wireManagement);
+        if (c.cpuStandCount !== undefined) setCpuStandCount(c.cpuStandCount);
+        if (c.flapBoxCount !== undefined) setFlapBoxCount(c.flapBoxCount);
+        if (c.wireRacewayCount !== undefined) setWireRacewayCount(c.wireRacewayCount);
+        if (c.includeFlapBox !== undefined) setIncludeFlapBox(c.includeFlapBox);
+        if (c.includeWireRaceway !== undefined) setIncludeWireRaceway(c.includeWireRaceway);
         if (c.flapBoxRate !== undefined) setFlapBoxRate(c.flapBoxRate);
         if (c.includePedestal !== undefined) setIncludePedestal(c.includePedestal);
         if (c.includeDrawer !== undefined) setIncludeDrawer(c.includeDrawer);
@@ -931,7 +986,13 @@ export default function WorkstationCalculator() {
       modestyFinish,
       cncDesignOnModesty,
       wireManagement,
+      cpuStandCount,
+      flapBoxCount,
+      wireRacewayCount,
+      includeFlapBox,
+      includeWireRaceway,
       flapBoxRate,
+      cpuStandType,
       includeDrawer,
       drawerCount,
       singleDrawerType,
@@ -967,6 +1028,11 @@ export default function WorkstationCalculator() {
       modestyFinish,
       cncDesignOnModesty,
     wireManagement,
+    cpuStandCount,
+    flapBoxCount,
+    wireRacewayCount,
+    includeFlapBox,
+    includeWireRaceway,
     flapBoxRate,
     includeDrawer,
     drawerCount,
@@ -1246,6 +1312,11 @@ export default function WorkstationCalculator() {
               modestyFinish: "plain",
               cncDesignOnModesty: false,
               wireManagement: exportWireManagement,
+              cpuStandCount,
+              flapBoxCount,
+              wireRacewayCount,
+              includeFlapBox,
+              includeWireRaceway,
               flapBoxRate: exportFlapBoxRate,
               includeDrawer,
               drawerCount,
@@ -1332,17 +1403,15 @@ export default function WorkstationCalculator() {
                   <option value="linear">Linear</option>
                   <option value="back_to_back">Back-to-Back</option>
                 </select>
-                {layout === "linear" && (
-                  <label className="flex items-start gap-1.5 mt-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isHeightAdjustable}
-                      onChange={(e) => setIsHeightAdjustable(e.target.checked)}
-                      className="w-3.5 h-3.5 mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="text-[10px] font-medium text-gray-600 leading-tight">Height Adjustable</span>
-                  </label>
-                )}
+                <label className="flex items-start gap-1.5 mt-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isHeightAdjustable}
+                    onChange={(e) => setIsHeightAdjustable(e.target.checked)}
+                    className="w-3.5 h-3.5 mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-[10px] font-medium text-gray-600 leading-tight">Height Adjustable</span>
+                </label>
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 whitespace-nowrap" title="Number of Sitting">
@@ -1577,7 +1646,7 @@ export default function WorkstationCalculator() {
                   </>
                 )}
 
-                {!(layout === 'linear' && isHeightAdjustable) && (
+                {!isHeightAdjustable && (
                   <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1742,19 +1811,70 @@ export default function WorkstationCalculator() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Wire Management
                 </label>
-                <select
-                  value={wireManagement}
-                  onChange={(e) => setWireManagement(e.target.value)}
-                  className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all"
-                >
-                  <option value="none">None</option>
-                                    <option value="raceway">
-                    Aluminum Flap Box (₹{flapBoxRate})
-                  </option>
-                  <option value="wire_raceway">
-                    Metal Wire Raceway Tray (₹{METAL_RACEWAY_COST})
-                  </option>
-                </select>
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeFlapBox || wireManagement === "raceway"}
+                        onChange={(e) => {
+                          setIncludeFlapBox(e.target.checked);
+                          if (!e.target.checked && wireManagement === "raceway") setWireManagement("none");
+                        }}
+                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 transition-colors"
+                      />
+                      <span className="text-sm font-medium text-gray-900 block">Aluminum Flap Box (₹{flapBoxRate})</span>
+                    </label>
+                    {(includeFlapBox || wireManagement === "raceway") && (
+                      <div className="ml-8 mt-1 space-y-3">
+                         <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Quantity (0 for Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={flapBoxCount === 0 ? '' : flapBoxCount}
+                            onChange={(e) => setFlapBoxCount(Number(e.target.value) || 0)}
+                            placeholder="Auto calculation"
+                            className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            min="0"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeWireRaceway || wireManagement === "wire_raceway"}
+                        onChange={(e) => {
+                          setIncludeWireRaceway(e.target.checked);
+                          if (!e.target.checked && wireManagement === "wire_raceway") setWireManagement("none");
+                        }}
+                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 transition-colors"
+                      />
+                      <span className="text-sm font-medium text-gray-900 block">Metal Wire Raceway Tray (₹{METAL_RACEWAY_COST})</span>
+                    </label>
+                    {(includeWireRaceway || wireManagement === "wire_raceway") && (
+                      <div className="ml-8 mt-1 space-y-3">
+                         <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Quantity (0 for Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={wireRacewayCount === 0 ? '' : wireRacewayCount}
+                            onChange={(e) => setWireRacewayCount(Number(e.target.value) || 0)}
+                            placeholder="Auto calculation"
+                            className="block w-full max-w-xs px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            min="0"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="pt-4 border-t border-gray-100">
@@ -1892,12 +2012,27 @@ export default function WorkstationCalculator() {
                     <select
                       value={cpuStandType}
                       onChange={(e) => setCpuStandType(e.target.value)}
-                      className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none"
+                      className="block w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none mb-2"
                     >
                       <option value="none">None</option>
                       <option value="trolley">CPU Trolley</option>
                       <option value="mount">CPU Mount Bracket</option>
                     </select>
+                    {cpuStandType !== "none" && (
+                        <div className="mt-2">
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Quantity (0 for Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={cpuStandCount === 0 ? '' : cpuStandCount}
+                            onChange={(e) => setCpuStandCount(Number(e.target.value) || 0)}
+                            placeholder="Auto calculation"
+                            className="block w-full max-w-xs px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            min="0"
+                          />
+                        </div>
+                    )}
                   </div>
 
                 </div>
@@ -2029,7 +2164,8 @@ export default function WorkstationCalculator() {
                           metalLegStyle, metalLegPipeSize, screenId, screenHeight, screenLayout,
                           sideScreenId, sideScreenHeight, sideScreenCoverage,
                           includeModesty, modestyType, modestyFinish, cncDesignOnModesty, wireManagement,
- flapBoxRate,
+                          cpuStandCount, flapBoxCount, wireRacewayCount, includeFlapBox, includeWireRaceway,
+                          flapBoxRate,
                           includePedestal, includeDrawer, drawerCount, singleDrawerType,
                           cpuStandType, innerMica, outerMica,
                           isHeightAdjustable, layout, numPersons

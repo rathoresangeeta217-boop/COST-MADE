@@ -15,6 +15,7 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { calculateRequiredBoards } from "../utils/boardCalculator";
 
 export const getBoards = (quality: string) => [
   { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
@@ -288,7 +289,7 @@ export function calculatePedestalCost({
 
   if (numDrawers > 0) {
     pieces.push({
-      label: "Drawer Bottoms",
+      label: "Drawer Bottoms (9mm)",
       w: dw,
       l: dd,
       qty: numDrawers,
@@ -917,6 +918,38 @@ export default function PedestalCalculator() {
       boardCostTotal,
       "Sum of all structural board cut-pieces (casing, drawer bottoms, shutters)",
     ]);
+    // Calculate required boards based on nesting efficiency
+    const piecesForNesting = boardPiecesDetails.map((b: any) => {
+      let pw = b.w;
+      let pl = b.l;
+      if (!pw || !pl) {
+        const match = (b.label || '').match(/\((\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+        if (match) {
+          pw = parseFloat(match[1]);
+          pl = parseFloat(match[2]);
+        }
+      }
+      if (!pw || !pl) {
+        // extract sq.ft and fallback to square
+        const sqftMatch = (b.label || '').match(/\(([\d.]+) sq\.ft\)/);
+        if (sqftMatch) {
+          const areaSqMm = parseFloat(sqftMatch[1]) * 90000;
+          pw = Math.sqrt(areaSqMm);
+          pl = Math.sqrt(areaSqMm);
+        } else {
+          pw = 500; pl = 500;
+        }
+      }
+      return { w: pw, l: pl, qty: b.qty || 1 };
+    });
+    
+    const actualNestedBoards = calculateRequiredBoards(piecesForNesting);
+
+    detailsData.push([
+      "Total Boards Required",
+      `${actualNestedBoards} Boards (Calculated via Nesting)`,
+      "Raw boards required based on piece nesting efficiency (not just total area / 32)",
+    ]);
     detailsData.push([
       "Material Waste (15%)",
       wasteCostTotal,
@@ -1013,6 +1046,21 @@ export default function PedestalCalculator() {
     ];
     const wsFormulas = XLSX.utils.aoa_to_sheet(formulasData);
     XLSX.utils.book_append_sheet(wb, wsFormulas, "Calculation Formulas");
+
+    // Add Raw Boards Summary explicitly
+    const rawBoardsSummary: any[][] = [];
+    rawBoardsSummary.push(["Raw Boards Summary (Nesting Efficiency)"]);
+    rawBoardsSummary.push([""]);
+    rawBoardsSummary.push(["Material", "Total Pieces", "Total Area (sq.ft)", "Boards (Area/32)", "Raw Boards Req (Nesting)"]);
+    rawBoardsSummary.push([
+      board.name, 
+      piecesForNesting.reduce((acc, p) => acc + p.qty, 0),
+      totalSqFt.toFixed(2),
+      Math.ceil(totalSqFt / 32),
+      actualNestedBoards
+    ]);
+    const wsRawBoards = XLSX.utils.aoa_to_sheet(rawBoardsSummary);
+    XLSX.utils.book_append_sheet(wb, wsRawBoards, "Raw Boards Summary");
 
     XLSX.writeFile(wb, "pedestal-cost-report.xlsx");
   };

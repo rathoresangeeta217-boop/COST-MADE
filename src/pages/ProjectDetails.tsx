@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useProjectStore } from '../store/useProjectStore';
 import { Plus, Download, FileSpreadsheet, Package, Trash2, Edit2, Check, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { calculateRequiredBoards } from '../utils/boardCalculator';
 
 export default function ProjectDetails() {
   const { projectId } = useParams();
@@ -35,11 +36,35 @@ export default function ProjectDetails() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Summary");
 
     const boards = item.costSummary.boardDetails || item.costSummary.boardPiecesDetails || item.costSummary.pieces || [];
-    const boardData = boards.filter((b: any) => !b.label?.includes('Edge Banding')).map((b: any) => ({
-      "Description": b.label || '',
-      "Area/Qty": Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)) * qty).toFixed(2),
-      "Cost (Rs)": Number(((b.cost || 0) * qty).toFixed(2))
-    }));
+    const boardData = boards.filter((b: any) => !b.label?.includes('Edge Banding')).map((b: any) => {
+      const area = Number((b.areaSqFt || b.totalSqFt || (b.w && b.l ? (b.w * b.l * (b.qty || 1) / 90000) : b.qty || 0)) * qty);
+      let pw = b.w;
+      let pl = b.l;
+      if (!pw || !pl) {
+          const dimMatch = (b.label || '').match(/\((\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x\d+(?:\.\d+)?)?(?:mm)?\)/);
+          if (dimMatch) {
+            pw = parseFloat(dimMatch[1]);
+            pl = parseFloat(dimMatch[2]);
+          }
+      }
+      if (!pw || !pl) {
+          const dimMatch2 = (b.label || '').match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+          if (dimMatch2) {
+            pw = parseFloat(dimMatch2[1]);
+            pl = parseFloat(dimMatch2[2]);
+          }
+      }
+      if (!pw || !pl) {
+         const side = Math.sqrt(area * 90000);
+         pw = side;
+         pl = side;
+      }
+      return {
+        "Description": b.label || '',
+        "Area (Sq.Ft) / Qty": area.toFixed(2),
+        "Cost (Rs)": Number(((b.cost || 0) * qty).toFixed(2))
+      };
+    });
     if (boardData.length > 0) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(boardData), "Board Details");
     }
@@ -101,7 +126,7 @@ export default function ProjectDetails() {
     XLSX.utils.book_append_sheet(wb, wsSummary, "Project Summary");
 
     // 2. Raw Material Aggregation
-    const boardAggregation: Record<string, { sqft: number, cost: number }> = {};
+    const boardAggregation: Record<string, { sqft: number, cost: number, pieces?: any[] }> = {};
     const edgeBandingAggregation: Record<string, { meters: number, cost: number }> = {};
     const hardwareAggregation: Record<string, { qty: number, unitPrice: number, totalCost: number, unitLabel?: string }> = {};
 
@@ -119,6 +144,8 @@ export default function ProjectDetails() {
           else if (bId.includes('mdf')) defaultMaterial = 'MDF';
           else if (bId.includes('plywood') || bId.includes('ply')) defaultMaterial = 'Plywood';
           else if (bId.includes('hdhmr')) defaultMaterial = 'HDHMR';
+          else if (bId.includes('crca') || bId.includes('metal') || bId.includes('slotted_angle')) defaultMaterial = 'Powder Coated CRCA Metal';
+          else if (bId.includes('ss') || bId.includes('stainless')) defaultMaterial = 'Stainless Steel';
       }
 
       const nameMatch = item.name.match(/\(([\w_]+)\)/);
@@ -132,10 +159,12 @@ export default function ProjectDetails() {
         else if (boardId.includes('6mm')) defaultThickness = '6mm';
         else if (boardId.includes('18mm')) defaultThickness = '18mm';
 
-        if (boardId.includes('particle')) defaultMaterial = 'Particle Board';
+        if (boardId.includes('particle') || boardId.includes('plpb')) defaultMaterial = 'Particle Board';
         else if (boardId.includes('mdf')) defaultMaterial = 'MDF';
-        else if (boardId.includes('plywood')) defaultMaterial = 'Plywood';
+        else if (boardId.includes('plywood') || boardId.includes('ply')) defaultMaterial = 'Plywood';
         else if (boardId.includes('hdhmr')) defaultMaterial = 'HDHMR';
+        else if (boardId.includes('crca') || boardId.includes('metal') || boardId.includes('slotted_angle')) defaultMaterial = 'Powder Coated CRCA Metal';
+        else if (boardId.includes('ss') || boardId.includes('stainless')) defaultMaterial = 'Stainless Steel';
       }
 
       // Aggregate Boards if available
@@ -167,16 +196,18 @@ export default function ProjectDetails() {
              }
              
              let thickness = defaultThickness;
-             const tMatch = label.match(/(\d+)mm/);
+             const tMatch = label.match(/([\d.]+)mm/);
              if (tMatch) {
                thickness = `${tMatch[1]}mm`;
              }
              
              let material = defaultMaterial;
-             if (label.toLowerCase().includes('particle board')) material = 'Particle Board';
+             if (label.toLowerCase().includes('particle board') || label.toLowerCase().includes('plpb')) material = 'Particle Board';
              else if (label.toLowerCase().includes('mdf')) material = 'MDF';
-             else if (label.toLowerCase().includes('plywood')) material = 'Plywood';
+             else if (label.toLowerCase().includes('plywood') || label.toLowerCase().includes('ply')) material = 'Plywood';
              else if (label.toLowerCase().includes('hdhmr')) material = 'HDHMR';
+             else if (label.toLowerCase().includes('crca') || label.toLowerCase().includes('metal') || label.toLowerCase().includes('slotted angle')) material = 'Powder Coated CRCA Metal';
+             else if (label.toLowerCase().includes('ss') || label.toLowerCase().includes('stainless')) material = 'Stainless Steel';
              
              let mica = '';
              if (label.includes('with Mica')) {
@@ -185,9 +216,46 @@ export default function ProjectDetails() {
              }
              
              const key = `${thickness} ${material}${mica}`;
-             if (!boardAggregation[key]) boardAggregation[key] = { sqft: 0, cost: 0 };
+             if (!boardAggregation[key]) boardAggregation[key] = { sqft: 0, cost: 0, pieces: [] };
              boardAggregation[key].sqft += area * qty;
              boardAggregation[key].cost += (b.cost || 0) * qty;
+             
+             let pw = b.w;
+             let pl = b.l;
+             let pqty = (b.qty || 1) * qty;
+             
+             if (!pw || !pl) {
+               const dimMatch = label.match(/\((\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x\d+(?:\.\d+)?)?(?:mm)?\)/);
+               if (dimMatch) {
+                 pw = parseFloat(dimMatch[1]);
+                 pl = parseFloat(dimMatch[2]);
+               }
+             }
+             if (!pw || !pl) {
+               // try to extract from label like "1500x750"
+               const dimMatch2 = label.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+               if (dimMatch2) {
+                 pw = parseFloat(dimMatch2[1]);
+                 pl = parseFloat(dimMatch2[2]);
+               }
+             }
+             
+             // If we found valid width/length, we can add it to pieces array
+             if (pw && pl) {
+               boardAggregation[key].pieces.push({ w: pw, l: pl, qty: pqty });
+             } else if (area > 0) {
+               // Fallback: If we just have area, approximate it as a square piece
+               let sideW = Math.sqrt(area * 90000);
+               let sideL = Math.sqrt(area * 90000);
+               
+               // Use b.l and b.w directly if they exist on the object (as they do in Custom Storage)
+               if (b.l && b.w) {
+                   sideW = b.w;
+                   sideL = b.l;
+               }
+
+               boardAggregation[key].pieces.push({ w: sideW, l: sideL, qty: pqty });
+             }
            }
          });
       }
@@ -219,15 +287,34 @@ export default function ProjectDetails() {
       }
     });
 
-    const boardData = Object.entries(boardAggregation).map(([name, data]) => ({
-      "Material Name & Spec": name,
-      "Total Area (Sq.Ft)": Number(data.sqft.toFixed(2)),
-      "Total Cost (Rs)": Number(data.cost.toFixed(2))
-    }));
+    const boardData = Object.entries(boardAggregation).map(([name, data]: [string, any]) => {
+      const actualBoards = data.pieces && data.pieces.length > 0 ? calculateRequiredBoards(data.pieces) : Math.ceil(data.sqft / 32);
+      return {
+        "Material Name & Spec": name,
+        "Total Area (Sq.Ft)": Number(data.sqft.toFixed(2)),
+        "Boards Req (Actual nesting)": actualBoards,
+        "Total Cost (Rs)": Number(data.cost.toFixed(2))
+      };
+    });
     
     if(boardData.length > 0) {
         const wsBoards = XLSX.utils.json_to_sheet(boardData);
         XLSX.utils.book_append_sheet(wb, wsBoards, "Board Requirements");
+        
+        // Also create a dedicated summary table specifically for raw boards
+        const rawBoardsSummary = Object.entries(boardAggregation).map(([name, data]: [string, any]) => {
+          const actualBoards = data.pieces && data.pieces.length > 0 ? calculateRequiredBoards(data.pieces) : Math.ceil(data.sqft / 32);
+          const simpleBoards = Math.ceil(data.sqft / 32);
+          return {
+            "Material": name,
+            "Pieces Count": data.pieces ? data.pieces.reduce((acc: number, p: any) => acc + (p.qty || 1), 0) : 0,
+            "Total Area (Sq.Ft)": Number(data.sqft.toFixed(2)),
+            "Boards based on Area (32 sqft)": simpleBoards,
+            "Raw Boards Req (Nesting Efficiency)": actualBoards,
+          };
+        });
+        const wsRawBoards = XLSX.utils.json_to_sheet(rawBoardsSummary);
+        XLSX.utils.book_append_sheet(wb, wsRawBoards, "Raw Boards Summary");
     }
 
     const ebData = Object.entries(edgeBandingAggregation).map(([name, data]) => ({

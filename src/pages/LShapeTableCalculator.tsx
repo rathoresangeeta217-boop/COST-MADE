@@ -16,6 +16,7 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { calculateRequiredBoards } from "../utils/boardCalculator";
 
 export const getBoards = (quality: string) => [
   { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
@@ -236,6 +237,9 @@ export function calculateLShapeCost({
     bDetails.push({
       label: `Return Storage Top (${returnWidth}x${returnDepth}x${displayThickness}mm) - ${displayMaterialName}${micaSuffix} (${returnTopSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(returnTopSqFt * topRate),
+        w: returnWidth,
+        l: returnDepth,
+        qty: 1
     });
   }
 
@@ -498,6 +502,9 @@ export function calculateLShapeCost({
     bDetails.push({
       label: `Board Understructure Legs (x${legCount}) - ${effectiveDepth}D${micaSuffix} (${legAreaSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(legsCost),
+      w: effectiveDepth,
+      l: height,
+      qty: legCount
     });
 
     // Edge Banding for Legs (assumes standard 18mm board for legs with 0.8mm edge banding at 13/m)
@@ -614,6 +621,9 @@ export function calculateLShapeCost({
           ? `All Table Modesty Panels (${modestyFinish}) (${mainModestyWidth}x${modestyHeight}, ${returnModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`
           : `Main Modesty Panel (${modestyFinish}) (${mainModestyWidth}x${modestyHeight})${micaSuffix} (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
         cost: Math.round(modCost),
+        w: mainModestyWidth,
+        l: modestyHeight,
+        qty: includeReturnStorage ? 2 : 1
       });
 
       // Modesty Edge Banding (1 bottom edge per panel)
@@ -702,12 +712,20 @@ export function calculateLShapeCost({
       (drawerWidth * drawerDepth)
     );
 
-    const drawerAreaSqFt = drawerAreaSqMm / 90000;
-    const drawerBoardCost = drawerAreaSqFt * (board.costPerSqFt + totalMicaRate);
-    bCostTotal += drawerBoardCost;
+    const drawerSidesAreaSqMm = drawerCount * ((drawerWidth * drawerHeight * 2) + (drawerDepth * drawerHeight * 2));
+    const drawerBottomAreaSqMm = drawerCount * (drawerWidth * drawerDepth);
+    const sidesCost = (drawerSidesAreaSqMm / 90000) * (board.costPerSqFt + totalMicaRate);
+    const bottomRate = getTopRate(board.id, board.costPerSqFt, 9, quality) + totalMicaRate;
+    const bottomCost = (drawerBottomAreaSqMm / 90000) * bottomRate;
+    
+    bCostTotal += (sidesCost + bottomCost);
     bDetails.push({
-      label: `Drawers (${drawerCount}x) Board${micaSuffix} (${drawerAreaSqFt.toFixed(2)} sq.ft)`,
-      cost: Math.round(drawerBoardCost),
+      label: `Drawer Box Panels (${drawerCount}x) Board${micaSuffix} (${(drawerSidesAreaSqMm/90000).toFixed(2)} sq.ft)`,
+      cost: Math.round(sidesCost),
+    });
+    bDetails.push({
+      label: `Drawer Bottoms (9mm) (${drawerCount}x) Board${micaSuffix} (${(drawerBottomAreaSqMm/90000).toFixed(2)} sq.ft)`,
+      cost: Math.round(bottomCost),
     });
 
     const channelCost = drawerCount * HARDWARE_CHANNEL_COST;
@@ -2102,6 +2120,38 @@ export default function LShapeTableCalculator() {
       boardCostTotal,
       "Sum of all individual board pieces (main table + return + understructure)",
     ]);
+    // Calculate required boards based on nesting efficiency
+    const piecesForNesting = boardDetails.map((b: any) => {
+      let pw = b.w;
+      let pl = b.l;
+      if (!pw || !pl) {
+        const match = (b.label || '').match(/\((\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+        if (match) {
+          pw = parseFloat(match[1]);
+          pl = parseFloat(match[2]);
+        }
+      }
+      if (!pw || !pl) {
+        // extract sq.ft and fallback to square
+        const sqftMatch = (b.label || '').match(/\(([\d.]+) sq\.ft\)/);
+        if (sqftMatch) {
+          const areaSqMm = parseFloat(sqftMatch[1]) * 90000;
+          pw = Math.sqrt(areaSqMm);
+          pl = Math.sqrt(areaSqMm);
+        } else {
+          pw = 500; pl = 500;
+        }
+      }
+      return { w: pw, l: pl, qty: b.qty || 1 };
+    });
+    
+    const actualNestedBoards = calculateRequiredBoards(piecesForNesting);
+
+    detailsData.push([
+      "Total Boards Required",
+      `${actualNestedBoards} Boards (Calculated via Nesting)`,
+      "Raw boards required based on piece nesting efficiency (not just total area / 32)",
+    ]);
     detailsData.push([
       "Material Waste (15%)",
       wasteCost,
@@ -2193,6 +2243,21 @@ export default function LShapeTableCalculator() {
     ];
     const wsFormulas = XLSX.utils.aoa_to_sheet(formulasData);
     XLSX.utils.book_append_sheet(wb, wsFormulas, "Calculation Formulas");
+
+    // Add Raw Boards Summary explicitly
+    const rawBoardsSummary: any[][] = [];
+    rawBoardsSummary.push(["Raw Boards Summary (Nesting Efficiency)"]);
+    rawBoardsSummary.push([""]);
+    rawBoardsSummary.push(["Material", "Total Pieces", "Total Area (sq.ft)", "Boards (Area/32)", "Raw Boards Req (Nesting)"]);
+    rawBoardsSummary.push([
+      board.name, 
+      piecesForNesting.reduce((acc, p) => acc + p.qty, 0),
+      totalSqFt.toFixed(2),
+      Math.ceil(totalSqFt / 32),
+      actualNestedBoards
+    ]);
+    const wsRawBoards = XLSX.utils.aoa_to_sheet(rawBoardsSummary);
+    XLSX.utils.book_append_sheet(wb, wsRawBoards, "Raw Boards Summary");
 
     XLSX.writeFile(wb, "lshape-table-cost-report.xlsx");
   };

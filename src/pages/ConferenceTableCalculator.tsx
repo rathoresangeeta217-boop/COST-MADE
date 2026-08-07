@@ -22,6 +22,7 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { calculateRequiredBoards } from "../utils/boardCalculator";
 
 export const getBoards = (quality: string) => [
   { id: "plpb", name: "PLPB", costPerSqFt: quality === "affordable" ? 34 : 49 },
@@ -170,6 +171,9 @@ export function calculateConferenceCost({
     {
       label: `Table Top (${mainWidth}x${mainDepth}x${topThickness}mm) - ${board.name} (${mainTopSqFt.toFixed(2)} sq.ft)`,
       cost: Math.round(topCost),
+      w: mainWidth,
+      l: mainDepth,
+      qty: 1
     },
   ];
 
@@ -192,8 +196,11 @@ export function calculateConferenceCost({
       const modestyCost = modestyAreaSqFt * modestyRate;
 
       bDetails.push({
-          label: `Modesty Panel (${modestyFinish}) - ${mainWidth}x${modestyHeightMm}mm (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
+          label: `Modesty Panel (18mm, ${modestyFinish}) - ${mainWidth}x${modestyHeightMm}mm (${modestyAreaSqFt.toFixed(2)} sq.ft)`,
           cost: Math.round(modestyCost),
+          w: mainWidth,
+          l: modestyHeightMm,
+          qty: 1
       });
       bCostTotal += modestyCost;
   }
@@ -205,6 +212,9 @@ export function calculateConferenceCost({
 
   let hardwareLegCost = 0;
   let hardwareLegDesc = "";
+
+  let areaPerLegSqMm = 0;
+  let effectiveLegCount = legCount;
 
   if (legType === "metal_straight" || legType === "metal_u") {
       // Calculate like normal table (pipe dimensions)
@@ -236,9 +246,9 @@ export function calculateConferenceCost({
       hardwareLegCost = costVerticals + cost40x20 + powderCoatingCost + accessoriesCost;
       hardwareLegDesc = legType === "metal_straight" ? `Metal Straight Legs Framework` : `Metal U-Shape Legs Framework`;
   } else {
-      let areaPerLegSqMm = 0;
+      areaPerLegSqMm = 0;
       let legRate = board.costPerSqFt; // use base rate
-      let effectiveLegCount = legCount;
+      effectiveLegCount = legCount;
       let legName = "";
 
       if (legType === "board") {
@@ -251,23 +261,23 @@ export function calculateConferenceCost({
           effectiveLegCount = legCount;
           
           if (middleLegCount > 0) {
-              legName = `2x Board Slab Legs (${mainDepth}mm D), ${middleLegCount}x Middle Board Legs (${middleLegDepth}mm D) x ${height}mm H`;
+              legName = `2x Board Slab Legs (18mm, ${mainDepth}mm D), ${middleLegCount}x Middle Board Legs (18mm, ${middleLegDepth}mm D) x ${height}mm H`;
           } else {
-              legName = `2x Board Slab Legs (${mainDepth}mm x ${height}mm)`;
+              legName = `2x Board Slab Legs (18mm) (${mainDepth}x${height}mm)`;
           }
       } else if (legType === "box_plain") {
           const boxWidth = Math.max(0, mainWidth - 600);
           const boxDepth = Math.max(0, mainDepth - 600);
           areaPerLegSqMm = (boxWidth * 2 + boxDepth * 2) * height;
           effectiveLegCount = 1;
-          legName = `1x Open Box Base (Plain) (4 Panels: 2x ${boxWidth}mm W & 2x ${boxDepth}mm D x ${height}mm H, No Top/Bottom)`;
+          legName = `1x Open Box Base (Plain) (18mm) (4 Panels: 2x ${boxWidth}mm W & 2x ${boxDepth}mm D x ${height}mm H, No Top/Bottom)`;
       } else if (legType === "box_fluted") {
           const boxWidth = Math.max(0, mainWidth - 600);
           const boxDepth = Math.max(0, mainDepth - 600);
           areaPerLegSqMm = (boxWidth * 2 + boxDepth * 2) * height;
           effectiveLegCount = 1;
           legRate += 100; // fluted premium
-          legName = `1x Open Box Base (Fluted) (4 Panels: 2x ${boxWidth}mm W & 2x ${boxDepth}mm D x ${height}mm H, No Top/Bottom)`;
+          legName = `1x Open Box Base (Fluted) (18mm) (4 Panels: 2x ${boxWidth}mm W & 2x ${boxDepth}mm D x ${height}mm H, No Top/Bottom)`;
       } else if (legType === "round_plain") {
           const circumference = Math.round(Math.PI * 600); // 1885mm for 600mm dia
           areaPerLegSqMm = circumference * height;
@@ -287,7 +297,10 @@ export function calculateConferenceCost({
   if (legCostTotal > 0) {
       bDetails.push({
           label: legDesc,
-          cost: Math.round(legCostTotal)
+          cost: Math.round(legCostTotal),
+          w: height,
+          l: areaPerLegSqMm / height,
+          qty: effectiveLegCount
       });
       bCostTotal += legCostTotal;
   }
@@ -565,6 +578,34 @@ export default function ConferenceTableCalculator() {
     detailsData.push([""]);
     detailsData.push(["Cost Summary (Overall Calculation)", "Amount"]);
     detailsData.push(["Total Board Cost", costSummary.boardCostTotal]);
+    // Calculate required boards based on nesting efficiency
+    const piecesForNesting = costSummary.boardPiecesDetails.map((b: any) => {
+      let pw = b.w;
+      let pl = b.l;
+      if (!pw || !pl) {
+        const match = (b.label || '').match(/\((\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+        if (match) {
+          pw = parseFloat(match[1]);
+          pl = parseFloat(match[2]);
+        }
+      }
+      if (!pw || !pl) {
+        // extract sq.ft and fallback to square
+        const sqftMatch = (b.label || '').match(/\(([\d.]+) sq\.ft\)/);
+        if (sqftMatch) {
+          const areaSqMm = parseFloat(sqftMatch[1]) * 90000;
+          pw = Math.sqrt(areaSqMm);
+          pl = Math.sqrt(areaSqMm);
+        } else {
+          pw = 500; pl = 500;
+        }
+      }
+      return { w: pw, l: pl, qty: b.qty || 1 };
+    });
+    
+    const actualNestedBoards = calculateRequiredBoards(piecesForNesting);
+
+    detailsData.push(["Total Boards Required", `${actualNestedBoards} Boards (Calculated via Nesting)`]);
     detailsData.push(["Hardware & Accessories", Math.round(costSummary.hardwareCostTotal)]);
     detailsData.push(["Add-ons", Math.round(costSummary.addonCostTotal)]);
     detailsData.push(["Labor & Making", costSummary.makingCharges]);
@@ -576,6 +617,21 @@ export default function ConferenceTableCalculator() {
 
     const wsDetails = XLSX.utils.aoa_to_sheet(detailsData);
     XLSX.utils.book_append_sheet(wb, wsDetails, "Cost Details");
+
+    // Add Raw Boards Summary explicitly
+    const rawBoardsSummary: any[][] = [];
+    rawBoardsSummary.push(["Raw Boards Summary (Nesting Efficiency)"]);
+    rawBoardsSummary.push([""]);
+    rawBoardsSummary.push(["Material", "Total Pieces", "Total Area (sq.ft)", "Boards (Area/32)", "Raw Boards Req (Nesting)"]);
+    rawBoardsSummary.push([
+      "Board Material", 
+      piecesForNesting.reduce((acc, p) => acc + p.qty, 0),
+      Number(costSummary.totalSqFt || 0).toFixed(2),
+      Math.ceil(Number(costSummary.totalSqFt || 0) / 32),
+      actualNestedBoards
+    ]);
+    const wsRawBoards = XLSX.utils.aoa_to_sheet(rawBoardsSummary);
+    XLSX.utils.book_append_sheet(wb, wsRawBoards, "Raw Boards Summary");
 
     XLSX.writeFile(wb, "conference-table-cost-report.xlsx");
   };

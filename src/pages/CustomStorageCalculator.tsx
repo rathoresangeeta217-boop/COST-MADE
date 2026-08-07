@@ -70,6 +70,7 @@ export const getEdgeBandingRate = (thickness: number) => {
 export const getBoards = (quality: string, category: string = "wooden") => {
   if (category === "metal") {
     return [
+      { id: "slotted_angle", name: "Slotted Angle Metal", costPerSqFt: quality === "affordable" ? 24 : 35 },
       { id: "crca_powder_coated", name: "Powder Coated CRCA Metal", costPerSqFt: quality === "affordable" ? 150 : 220 },
       { id: "ss_304", name: "Stainless Steel 304", costPerSqFt: quality === "affordable" ? 350 : 450 },
     ];
@@ -100,6 +101,9 @@ export const getAvailableThicknesses = (
   boardId: string,
   quality: string,
 ): number[] => {
+  if (boardId === "slotted_angle") {
+    return [1.2, 1.6, 2.0, 2.5, 3.0];
+  }
   if (boardId === "crca_powder_coated" || boardId === "ss_304") {
     return [0.6, 0.8, 1, 1.2, 1.6, 2];
   }
@@ -134,9 +138,13 @@ export const getAvailableThicknesses = (
 };
 
 export const formatThicknessLabel = (boardId: string, thickness: number): string => {
-  if (boardId === "crca_powder_coated" || boardId === "ss_304") {
+  if (boardId === "slotted_angle" || boardId === "crca_powder_coated" || boardId === "ss_304") {
     switch (thickness) {
+      case 3.0: return "11 Gauge (3.0mm)";
+      case 2.5: return "12 Gauge (2.5mm)";
+      case 2.3: return "13 Gauge (2.3mm)";
       case 2: return "14 Gauge (2.0mm)";
+      case 1.8: return "15 Gauge (1.8mm)";
       case 1.6: return "16 Gauge (1.6mm)";
       case 1.2: return "18 Gauge (1.2mm)";
       case 1: return "20 Gauge (1.0mm)";
@@ -155,6 +163,14 @@ export const getBoardRate = (
   quality: string,
 ): number => {
     const numThk = Number(thickness);
+    if (boardId === "slotted_angle") {
+        if (numThk === 3.0) return 110;
+        if (numThk === 2.5) return 90;
+        if (numThk === 2.0) return 75;
+        if (numThk === 1.6) return 21;
+        if (numThk === 1.2) return 45;
+        return baseRate;
+    }
     if (boardId === "crca_powder_coated") {
     if (numThk === 2) return 125;
     if (numThk === 1.6) return 96;
@@ -550,11 +566,11 @@ export default function CustomStorageCalculator() {
       const calcData = useMemo(() => {
     const mainThk = constructionCategory === 'metal' ? angleThickness : boardThickness;
     console.log(`calcData running... constructionCategory: ${constructionCategory}, angleThickness: ${angleThickness}, boardId: ${boardId}`);
-    const shelfThk = constructionCategory === 'metal' ? (shelfMaterialType === 'wooden' ? woodenShelfThickness : angleThickness) : boardThickness;
-    const shelfBoardId = constructionCategory === 'metal' && shelfMaterialType === 'wooden' ? woodenShelfId : boardId;
+    const shelfThk = constructionCategory === 'metal' ? (shelfMaterialType === 'wooden' ? woodenShelfThickness : boardThickness) : boardThickness;
+    const shelfBoardId = constructionCategory === 'metal' ? (shelfMaterialType === 'wooden' ? woodenShelfId : (boardId === 'slotted_angle' ? 'crca_powder_coated' : boardId)) : boardId;
     
     const getPieceRate = (label: string, defaultThickness: number, overrideBid?: string) => {
-        const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
+        const key = label.replace(/\s\([^)]*\)$/, '');
         const overrideBoardId = pieceOverrides[key];
         const overrideThickness = thicknessOverrides[key];
         
@@ -571,12 +587,23 @@ export default function CustomStorageCalculator() {
     const angularPieces = angularShelves.map((s, i) => {
         const label = `Angular Shelf ${i+1}`;
         const length = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
-        const area = (length * depth) / 90000;
+        const key = label.replace(/\s\([^)]*\)$/, '');
+        const thk = thicknessOverrides[key] || shelfThk;
+        const bid = pieceOverrides[key] && pieceOverrides[key] !== 'default' ? pieceOverrides[key] : (shelfBoardId || boardId);
+        const b = boards.find(b => b.id === bid) || getBoards(quality, 'wooden').find(b => b.id === bid);
+        const boardName = b ? b.name : '';
+        
+        let area = (length * depth) / 90000;
+        if (bid === 'slotted_angle') {
+             // For angular shelf frame, RFT = 2 * length (hypotenuse) + 2 * depth
+             area = ((length * 2) + (depth * 2)) / 304.8;
+        }
+        
         const rate = getPieceRate(label, shelfThk, shelfBoardId);
         const cost = area * rate;
         angularSqFt += area;
         angularShelvesCost += cost;
-        return { label, l: length, w: length, h: shelfThk, qty: 1, type: "Core", cost, totalSqFt: area, rate };
+        return { label: `${label} (${thk}mm ${boardName})`, l: length, w: length, h: thk, qty: 1, type: "Core", cost, totalSqFt: area, rate };
     });
 
     const pieces: any[] = [];
@@ -584,30 +611,60 @@ export default function CustomStorageCalculator() {
     let boardsSqFt = angularSqFt;
 
     const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number, overrideBid?: string) => {
-      const area = (l * w) / 90000;
-      const totalArea = area * qty;
-      const rate = getPieceRate(label, defaultThk, overrideBid);
+      const key = label.replace(/\s\([^)]*\)$/, '');
+      const thk = thicknessOverrides[key] || defaultThk;
+      const bid = pieceOverrides[key] && pieceOverrides[key] !== 'default' ? pieceOverrides[key] : (overrideBid || boardId);
+      const b = boards.find(b => b.id === bid) || getBoards(quality, 'wooden').find(b => b.id === bid);
+      
+      let area = (l * w) / 90000;
+      let totalArea = area * qty;
+      
+      if (bid === 'slotted_angle') {
+          if (label.includes("Top/Bottom") || label.includes("Horizontal Shelves") || label.includes("Drawer Bottom")) {
+              area = ((l * 2) + (w * 2)) / 304.8;
+          } else if (label.includes("Side Panels") || label.includes("Vertical Partitions")) {
+              area = (l * 2) / 304.8;
+          } else if (label.includes("Back Panel") || label.includes("Shutters / Doors") || label.includes("Drawer Front")) {
+              area = 0;
+          } else if (label.includes("Drawer Box Sides") || label.includes("Drawer Box Back/Front")) {
+              area = (l * 2) / 304.8;
+          } else {
+              area = l / 304.8;
+          }
+          totalArea = area * qty;
+      }
+      
+      const rate = getPieceRate(label, thk, overrideBid);
       const cost = totalArea * rate;
-      pieces.push({ label, l, w, h: defaultThk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
+      const boardName = b ? b.name : '';
+      pieces.push({ label: `${label} (${thk}mm ${boardName})`, l, w, h: thk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
       materialCost += cost;
       boardsSqFt += totalArea;
       return cost;
     };
 
     // Main carcass
-    addPiece("Top/Bottom", width, depth, 2, mainThk);
-    addPiece("Side Panels", height, depth, 2, mainThk);
-    if (numBays > 1) {
-      addPiece("Vertical Partitions", height, depth, numBays - 1, mainThk);
+    if (constructionCategory === 'metal' && boardId === 'slotted_angle') {
+      addPiece("Slotted Angle Uprights", height, 40, 4, mainThk, boardId);
+    } else {
+      addPiece("Top/Bottom", width, depth, 2, mainThk);
+      addPiece("Side Panels", height, depth, 2, mainThk);
+      if (numBays > 1) {
+        addPiece("Vertical Partitions", height, depth, numBays - 1, mainThk);
+      }
     }
     
     // Back Panel
-    const backPanelThk = constructionCategory === 'metal' ? mainThk : 6;
-    addPiece("Back Panel", width, height, 1, backPanelThk);
+    if (constructionCategory !== 'metal') {
+      const backPanelThk = 9;
+      // Note: we pass backPanelThk which will be picked up properly
+      addPiece("Back Panel", width, height, 1, backPanelThk, backPanelBoardId !== 'default' ? backPanelBoardId : undefined);
+    }
 
     // Bays internals
     let totalDrawers = 0;
-    let totalDoors = 0;
+    let singleDoors = 0;
+    let doubleDoors = 0;
     let totalShelves = 0;
     
     const bayWidth = width / (numBays || 1);
@@ -616,28 +673,42 @@ export default function CustomStorageCalculator() {
        if (bay.style === '1_drawer') totalDrawers += 1;
        if (bay.style === '2_drawers') totalDrawers += 2;
        if (bay.style === '3_drawers') totalDrawers += 3;
-       if (bay.style === '1_drawer_1_shutter') { totalDrawers += 1; totalDoors += 1; }
-       if (bay.style === 'shutter_solid' || bay.style === 'shutter_glass') totalDoors += 1;
-       if (bay.style === 'shutters_double') totalDoors += 2;
+       if (bay.style === '1_drawer_1_shutter') { totalDrawers += 1; singleDoors += 1; }
+       if (bay.style === 'shutter_solid' || bay.style === 'shutter_glass') singleDoors += 1;
+       if (bay.style === 'shutters_double') doubleDoors += 2;
        totalShelves += (bay.shelves || 0);
     });
+    
+    if (constructionCategory === 'metal') {
+       totalDrawers = 0;
+       singleDoors = 0;
+       doubleDoors = 0;
+    }
+    if (constructionCategory === 'metal' && boardId === 'slotted_angle') {
+       totalShelves += 2; // For Top and Bottom shelves
+    }
+    
+    let totalDoors = singleDoors + doubleDoors;
     
     if (totalShelves > 0) {
        addPiece("Horizontal Shelves", bayWidth, depth, totalShelves, shelfThk, shelfBoardId);
     }
     
-    if (totalDoors > 0) {
-       addPiece("Shutters / Doors", bayWidth, height, totalDoors, mainThk);
+    if (singleDoors > 0) {
+       addPiece("Shutters / Doors", bayWidth, height, singleDoors, mainThk);
+    }
+    if (doubleDoors > 0) {
+       addPiece("Shutters / Doors", bayWidth / 2, height, doubleDoors, mainThk);
     }
     
     if (totalDrawers > 0) {
        // approximation for drawer fronts and boxes
        const boxThk = constructionCategory === 'metal' ? mainThk : 12;
-       const bottomThk = constructionCategory === 'metal' ? mainThk : 6;
+       const bottomThk = constructionCategory === 'metal' ? mainThk : 9;
        addPiece("Drawer Fronts", bayWidth, 150, totalDrawers, mainThk);
-       addPiece("Drawer Box Sides", depth, 100, totalDrawers * 2, boxThk);
-       addPiece("Drawer Box Back/Front", bayWidth - 30, 100, totalDrawers * 2, boxThk);
-       addPiece("Drawer Bottom", bayWidth - 30, depth, totalDrawers, bottomThk);
+       addPiece("Drawer Box Sides", depth, 100, totalDrawers * 2, boxThk, drawerBoxBoardId !== 'default' ? drawerBoxBoardId : undefined);
+       addPiece("Drawer Box Back/Front", bayWidth - 30, 100, totalDrawers * 2, boxThk, drawerBoxBoardId !== 'default' ? drawerBoxBoardId : undefined);
+       addPiece("Drawer Bottom", bayWidth - 30, depth, totalDrawers, bottomThk, drawerBoxBoardId !== 'default' ? drawerBoxBoardId : undefined);
     }
     
     pieces.push(...angularPieces);
@@ -646,7 +717,7 @@ export default function CustomStorageCalculator() {
     const sidePanelsM = 2 * (height + depth) * 2 / 1000;
     const partitionsM = numBays > 1 ? (numBays - 1) * 2 * (height + depth) / 1000 : 0;
     const shelvesM = totalShelves > 0 ? totalShelves * 2 * (bayWidth + depth) / 1000 : 0;
-    const doorsM = totalDoors > 0 ? totalDoors * 2 * (bayWidth + height) / 1000 : 0;
+    const doorsM = (singleDoors * 2 * (bayWidth + height) + doubleDoors * 2 * (bayWidth / 2 + height)) / 1000;
     const drawersM = totalDrawers > 0 ? totalDrawers * 2 * (bayWidth + 150) / 1000 : 0;
 
     let totalEbMeters = (topBottomM + sidePanelsM + partitionsM + shelvesM + doorsM + drawersM) * 1.2;
@@ -654,19 +725,24 @@ export default function CustomStorageCalculator() {
     const ebCost = constructionCategory === 'metal' ? 0 : totalEbMeters * ebRate;
 
     const hardware = [
-        { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 },
-        ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors * 2, cost: totalDoors * 2 * 150, unit: "pair", unitPrice: 150 }] : []),
-        ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 250, unit: "pair", unitPrice: 250 }] : []),
-        ...(constructionCategory !== 'metal' ? [{ label: `Edge Banding (${ebLabel})`, qty: Number(totalEbMeters.toFixed(2)), cost: ebCost, unit: "m", unitPrice: ebRate }] : [])
+        ...(constructionCategory === 'metal' ? (boardId === 'slotted_angle' ? [
+            { label: "Nuts & Bolts / Corner Plates", qty: (totalShelves) * 8, cost: (totalShelves) * 8 * 2, unit: "pcs", unitPrice: 2 }
+        ] : []) : [
+            { label: "Screws", qty: 50, cost: 200, unit: "pcs", unitPrice: 4 },
+            ...(totalDoors > 0 ? [{ label: "Hinges", qty: totalDoors, cost: totalDoors * 125, unit: "pair", unitPrice: 125 }] : []),
+            ...(totalDrawers > 0 ? [{ label: "Channels", qty: totalDrawers, cost: totalDrawers * 235, unit: "pair", unitPrice: 235 }] : []),
+            { label: `Edge Banding (${ebLabel})`, qty: Number(totalEbMeters.toFixed(2)), cost: ebCost, unit: "m", unitPrice: ebRate }
+        ])
     ];
     
     const hwCost = hardware.reduce((sum, h) => sum + h.cost, 0);
 
-    const laborCost = Math.max(500, boardsSqFt * 40);
-    const packagingCost = Math.max(100, boardsSqFt * 15);
-    const toolingCost = Math.max(100, boardsSqFt * 10);
+    const laborCost = Math.round((materialCost + (materialCost * 0.15) + hwCost) * 0.20);
+    const packagingCost = 300;
+    const toolingCost = 100;
 
-    const netManufacturing = materialCost + hwCost + laborCost + packagingCost + toolingCost;
+    const wasteCost = materialCost * 0.15;
+    const netManufacturing = materialCost + wasteCost + hwCost + laborCost + packagingCost + toolingCost;
     const profit = netManufacturing * 0.25;
     console.log(`calcData - angleThickness: ${angleThickness}, boardId: ${boardId}, materialCost: ${materialCost}, grandTotal: ${netManufacturing + profit}`);
     
@@ -675,6 +751,7 @@ export default function CustomStorageCalculator() {
         grandTotal: netManufacturing + profit,
         boardsSqFt: boardsSqFt,
         materialCost: materialCost,
+        wasteCost: materialCost * 0.15,
         backingCost: 0,
         hardwareCost: hwCost,
         laborCost,
@@ -691,7 +768,7 @@ export default function CustomStorageCalculator() {
 
     const drawerCalcData = useMemo(() => {
     const getPieceRate = (label: string, defaultThickness: number, overrideBid?: string) => {
-        const key = label.replace(/\s\([^)]*(mm|Backing)\)$/, '');
+        const key = label.replace(/\s\([^)]*\)$/, '');
         const overrideBoardId = pieceOverrides[key];
         const overrideThickness = thicknessOverrides[key];
         
@@ -707,11 +784,33 @@ export default function CustomStorageCalculator() {
     let boardsSqFt = 0;
 
     const addPiece = (label: string, l: number, w: number, qty: number, defaultThk: number, overrideBid?: string) => {
-      const area = (l * w) / 90000;
-      const totalArea = area * qty;
-      const rate = getPieceRate(label, defaultThk, overrideBid);
+      const key = label.replace(/\s\([^)]*\)$/, '');
+      const thk = thicknessOverrides[key] || defaultThk;
+      const bid = pieceOverrides[key] && pieceOverrides[key] !== 'default' ? pieceOverrides[key] : (overrideBid || boardId);
+      const b = boards.find(b => b.id === bid) || getBoards(quality, 'wooden').find(b => b.id === bid);
+      
+      let area = (l * w) / 90000;
+      let totalArea = area * qty;
+      
+      if (bid === 'slotted_angle') {
+          if (label.includes("Top/Bottom") || label.includes("Horizontal Shelves") || label.includes("Drawer Bottom")) {
+              area = ((l * 2) + (w * 2)) / 304.8;
+          } else if (label.includes("Side Panels") || label.includes("Vertical Partitions")) {
+              area = (l * 2) / 304.8;
+          } else if (label.includes("Back Panel") || label.includes("Shutters / Doors") || label.includes("Drawer Front")) {
+              area = 0;
+          } else if (label.includes("Drawer Box Sides") || label.includes("Drawer Box Back/Front")) {
+              area = (l * 2) / 304.8;
+          } else {
+              area = l / 304.8;
+          }
+          totalArea = area * qty;
+      }
+      
+      const rate = getPieceRate(label, thk, overrideBid);
       const cost = totalArea * rate;
-      pieces.push({ label, l, w, h: defaultThk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
+      const boardName = b ? b.name : '';
+      pieces.push({ label: `${label} (${thk}mm ${boardName})`, l, w, h: thk, qty, type: "Core", cost, totalSqFt: totalArea, rate });
       materialCost += cost;
       boardsSqFt += totalArea;
       return cost;
@@ -723,20 +822,20 @@ export default function CustomStorageCalculator() {
     
     // Drawer Box
     const boxThickness = constructionCategory === 'metal' ? mainThk : 12;
-    const bottomThickness = constructionCategory === 'metal' ? mainThk : 6;
-    addPiece("Drawer Sides", drawerDepth, drawerHeight - 20, 2, boxThickness);
-    addPiece("Drawer Back/Front", drawerWidth - 30, drawerHeight - 20, 2, boxThickness);
+    const bottomThickness = constructionCategory === 'metal' ? mainThk : 9;
+    addPiece("Drawer Sides", drawerDepth, drawerHeight - 20, 2, boxThickness, drawerBoxBoardId !== 'default' ? drawerBoxBoardId : undefined);
+    addPiece("Drawer Back/Front", drawerWidth - 30, drawerHeight - 20, 2, boxThickness, drawerBoxBoardId !== 'default' ? drawerBoxBoardId : undefined);
     
-    addPiece("Drawer Bottom", drawerWidth - 30, drawerDepth, 1, bottomThickness);
+    addPiece("Drawer Bottom", drawerWidth - 30, drawerDepth, 1, bottomThickness, drawerBoxBoardId !== 'default' ? drawerBoxBoardId : undefined);
 
     const drawerEbMeters = (2 * (drawerWidth + drawerHeight)) / 1000 * 1.2;
     const { rate: ebRate, label: ebLabel } = getEdgeBandingRate(mainThk);
     const ebCost = constructionCategory === 'metal' ? 0 : drawerEbMeters * ebRate;
 
-    let hardwareCost = 250 + ebCost; // Channels + EB
-    const hardware = [
-      { label: "Channels", qty: 1, cost: 250, unit: "pair", unitPrice: 250 },
-      ...(constructionCategory !== 'metal' ? [{ label: `Edge Banding (${ebLabel})`, qty: Number(drawerEbMeters.toFixed(2)), cost: ebCost, unit: "m", unitPrice: ebRate }] : [])
+    let hardwareCost = constructionCategory === 'metal' ? 0 : (250 + ebCost); // Channels + EB
+    const hardware = constructionCategory === 'metal' ? [] : [
+      { label: "Channels", qty: 1, cost: 235, unit: "pair", unitPrice: 235 },
+      { label: `Edge Banding (${ebLabel})`, qty: Number(drawerEbMeters.toFixed(2)), cost: ebCost, unit: "m", unitPrice: ebRate }
     ];
 
     
@@ -750,19 +849,24 @@ export default function CustomStorageCalculator() {
       hardwareCost += 50;
     }
 
-    const netManufacturing = materialCost + hardwareCost + 500 + 100 + 100;
+    const wasteCost = materialCost * 0.15;
+    const laborCost = Math.round((materialCost + wasteCost + hardwareCost) * 0.20);
+    const packagingCost = 300;
+    const toolingCost = 100;
+    const netManufacturing = materialCost + wasteCost + hardwareCost + laborCost + packagingCost + toolingCost;
     const profit = netManufacturing * 0.25;
 
     return {
       totals: {
         grandTotal: netManufacturing + profit,
         materialCost,
+        wasteCost,
         backingCost: 0,
         boardsSqFt,
         hardwareCost,
-        laborCost: 500,
-        packagingCost: 100,
-        toolingCost: 100,
+        laborCost: laborCost,
+        packagingCost: packagingCost,
+        toolingCost: toolingCost,
         netManufacturingCost: netManufacturing,
         profitMargin: profit
       },
@@ -813,13 +917,14 @@ export default function CustomStorageCalculator() {
     const legsCost = legsQty * legPrice;
     const hardwareCost = locksCost + hingesCost + legsCost;
     
-    const baseLabor = totalSqFt * 40;
+    const wasteCost = materialCost * 0.15;
+    const baseLabor = Math.round((materialCost + wasteCost + hardwareCost) * 0.20);
     const cncCost = lockerCncDesign ? (activeDoors * 80) : 0; // 80 rs per door for CNC
     const laborCost = baseLabor + cncCost;
     const packagingCost = 300;
-    const toolingCost = 200;
+    const toolingCost = 100;
     
-    const netManufacturingCost = materialCost + hardwareCost + laborCost + packagingCost + toolingCost;
+    const netManufacturingCost = materialCost + wasteCost + hardwareCost + laborCost + packagingCost + toolingCost;
     const profitMargin = netManufacturingCost * 0.25;
     const grandTotal = netManufacturingCost + profitMargin;
     
@@ -827,6 +932,7 @@ export default function CustomStorageCalculator() {
       totals: {
         grandTotal,
         materialCost,
+        wasteCost,
         backingCost: 0,
         hardwareCost,
         laborCost,
@@ -1187,7 +1293,7 @@ export default function CustomStorageCalculator() {
                 >
                   {boards.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)
+                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
                     </option>
                   ))}
                 </select>
@@ -1222,7 +1328,7 @@ export default function CustomStorageCalculator() {
                 >
                   {boards.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, angleThickness, quality)}/sq.ft)
+                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, angleThickness, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
                     </option>
                   ))}
                 </select>
@@ -1272,8 +1378,8 @@ export default function CustomStorageCalculator() {
                     onChange={(e) => setBoardThickness(Number(e.target.value))}
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                   >
-                    {getAvailableThicknesses(boardId, quality).map((t) => (
-                      <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
+                    {getAvailableThicknesses((constructionCategory === 'metal' && boardId === 'slotted_angle') ? 'crca_powder_coated' : boardId, quality).map((t) => (
+                      <option key={t} value={t}>{formatThicknessLabel((constructionCategory === 'metal' && boardId === 'slotted_angle') ? 'crca_powder_coated' : boardId, t)}
                       </option>
                     ))}
                   </select>
@@ -1339,29 +1445,31 @@ export default function CustomStorageCalculator() {
                       <option value="default">Same as Carcass Board ({activeBoard.name})</option>
                       {boards.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)
+                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                      Back Panel Board Material (9mm)
-                    </label>
-                    <select
-                      value={backPanelBoardId}
-                      onChange={(e) => setBackPanelBoardId(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                    >
-                      <option value="default">Standard 9mm PLPB Backing (₹35/sq.ft)</option>
-                      {boards.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, 9, quality)}/sq.ft)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {constructionCategory !== 'metal' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                        Back Panel Board Material (9mm)
+                      </label>
+                      <select
+                        value={backPanelBoardId}
+                        onChange={(e) => setBackPanelBoardId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                      >
+                        <option value="default">Standard 9mm PLPB Backing (₹35/sq.ft)</option>
+                        {boards.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, 9, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1.5">
@@ -1375,7 +1483,7 @@ export default function CustomStorageCalculator() {
                       <option value="default">Standard Drawer Panels</option>
                       {boards.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, 9, quality)}/sq.ft)
+                          {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, 9, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
                         </option>
                       ))}
                     </select>
@@ -1765,7 +1873,7 @@ export default function CustomStorageCalculator() {
                     <th className="p-3 text-left">Board Material</th>
                     <th className="p-3 text-left">Thickness</th>
                     <th className="p-3 text-center">Qty</th>
-                    <th className="p-3 text-right">Total Area (Sq.Ft)</th>
+                    <th className="p-3 text-right">Total Area/Length (Sq.Ft/Rft)</th>
                     <th className="p-3 text-right">Rate Used</th>
                     <th className="p-3 text-right">Cost (Rs.)</th>
                   </tr>
@@ -1777,26 +1885,26 @@ export default function CustomStorageCalculator() {
                       <td className="p-3 text-right">{p.w} x {p.l}</td>
                       <td className="p-3 text-left">
                         <select
-                          value={pieceOverrides[p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')] || 'default'}
-                          onChange={(e) => setPieceOverrides({...pieceOverrides, [p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')]: e.target.value})}
+                          value={pieceOverrides[p.label.replace(/\s\([^)]*\)$/, '')] || 'default'}
+                          onChange={(e) => setPieceOverrides({...pieceOverrides, [p.label.replace(/\s\([^)]*\)$/, '')]: e.target.value})}
                           className="px-2 py-1 bg-white border border-gray-200 rounded text-xs outline-none focus:border-indigo-500 w-32"
                         >
                           <option value="default">Default</option>
                           {boards.map(b => (
-                            <option key={b.id} value={b.id}>{b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)</option>
+                            <option key={b.id} value={b.id}>{b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})</option>
                           ))}
                         </select>
                       </td>
                       <td className="p-3 text-left">
                         <select
-                          value={thicknessOverrides[p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')] || ''}
+                          value={thicknessOverrides[p.label.replace(/\s\([^)]*\)$/, '')] || ''}
                           onChange={(e) => {
                             const val = e.target.value;
                             if (val) {
-                                setThicknessOverrides({...thicknessOverrides, [p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')]: Number(val)});
+                                setThicknessOverrides({...thicknessOverrides, [p.label.replace(/\s\([^)]*\)$/, '')]: Number(val)});
                             } else {
                                 const newOver = {...thicknessOverrides};
-                                delete newOver[p.label.replace(/\s\([^)]*(mm|Backing)\)$/, '')];
+                                delete newOver[p.label.replace(/\s\([^)]*\)$/, '')];
                                 setThicknessOverrides(newOver);
                             }
                           }}
@@ -1809,7 +1917,7 @@ export default function CustomStorageCalculator() {
                         </select>
                       </td>
                       <td className="p-3 text-center font-bold">{Number.isInteger(p.qty) ? p.qty : Number(p.qty).toFixed(2)}</td>
-                      <td className="p-3 text-right">{(p.totalSqFt).toFixed(2)} <span className="text-[10px] text-gray-400">inc. 15%</span></td>
+                      <td className="p-3 text-right">{(p.totalSqFt).toFixed(2)} <span className="text-[10px] text-gray-400">{p.label.toLowerCase().includes('slotted angle') ? 'Rft' : 'Sq.Ft'}</span></td>
                       <td className="p-3 text-right">Rs {p.rate.toFixed(0)}</td>
                       <td className="p-3 text-right font-bold text-gray-900">Rs {p.cost.toFixed(0)}</td>
                     </tr>
@@ -1819,7 +1927,7 @@ export default function CustomStorageCalculator() {
             </div>
 
             <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-500 leading-relaxed font-sans">
-              <strong>* Cost formulation logic:</strong> Board sq.ft rate calculated with dynamic density waste adjustments (+15% allowance). Mica overlays (Inner + Outer) are layered on top of core board rates if active. Backing panels (9mm PLPB) are estimated at standard factory cost.
+              <strong>* Cost formulation logic:</strong> Board sq.ft rate calculated with dynamic density waste adjustments (+15% allowance). Mica overlays (Inner + Outer) are layered on top of core board rates if active. Backing panels are estimated at standard factory cost based on construction type.
             </div>
           </div>
 
@@ -3198,19 +3306,41 @@ export default function CustomStorageCalculator() {
                 <span>Rs {calcData.totals.materialCost.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-slate-400 font-mono">
-                <span>Backing PLPB (9mm Panel):</span>
-                <span>Rs {calcData.totals.backingCost.toFixed(2)}</span>
+                <span>Material Waste (15%):</span>
+                <span>Rs {calcData.totals.wasteCost.toFixed(2)}</span>
               </div>
+              <div className="pl-4 pb-1 space-y-1">
+                {calcData.pieces.filter(p => p.cost > 0).map((p, i) => (
+                  <div key={i} className="flex justify-between text-[11px] text-slate-500 font-mono">
+                    <span>- {p.qty}x {p.label.split(' (')[0]} ({p.w}x{p.l}mm)</span>
+                    <span>Rs {p.cost.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+              {calcData.totals.backingCost > 0 && (
+                <div className="flex justify-between text-slate-400 font-mono">
+                  <span>Backing (9mm Panel):</span>
+                  <span>Rs {calcData.totals.backingCost.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-slate-400 font-mono">
-                <span>Total Hardware & Edge Banding:</span>
+                <span>{constructionCategory === 'metal' ? 'Total Hardware:' : 'Total Hardware & Edge Banding:'}</span>
                 <span>Rs {calcData.totals.hardwareCost.toFixed(2)}</span>
               </div>
+              <div className="pl-4 pb-1 space-y-1">
+                {calcData.hardware.map((h, i) => (
+                  <div key={i} className="flex justify-between text-[11px] text-slate-500 font-mono">
+                    <span>- {h.qty} {h.unit} {h.label.split(' (')[0]}</span>
+                    <span>Rs {h.cost.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
               <div className="flex justify-between text-slate-400 font-mono">
-                <span>Factory Crafting Labor:</span>
+                <span>Factory Crafting Labor (20% of Material + Hardware):</span>
                 <span>Rs {calcData.totals.laborCost.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-slate-400 font-mono">
-                <span>Factory Overheads (Packing/Overhead):</span>
+                <span>Factory Overheads (Packaging + Tooling):</span>
                 <span>Rs {(calcData.totals.packagingCost + calcData.totals.toolingCost).toFixed(2)}</span>
               </div>
               
@@ -3486,7 +3616,7 @@ export default function CustomStorageCalculator() {
                 >
                   {boards.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/sq.ft)
+                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, boardThickness, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
                     </option>
                   ))}
                 </select>
@@ -3521,7 +3651,7 @@ export default function CustomStorageCalculator() {
                 >
                   {boards.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, angleThickness, quality)}/sq.ft)
+                      {b.name} (₹{getBoardRate(b.id, b.costPerSqFt, angleThickness, quality)}/{b.id === 'slotted_angle' ? 'rft' : 'sq.ft'})
                     </option>
                   ))}
                 </select>
@@ -3571,8 +3701,8 @@ export default function CustomStorageCalculator() {
                     onChange={(e) => setBoardThickness(Number(e.target.value))}
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
                   >
-                    {getAvailableThicknesses(boardId, quality).map((t) => (
-                      <option key={t} value={t}>{formatThicknessLabel(boardId, t)}
+                    {getAvailableThicknesses((constructionCategory === 'metal' && boardId === 'slotted_angle') ? 'crca_powder_coated' : boardId, quality).map((t) => (
+                      <option key={t} value={t}>{formatThicknessLabel((constructionCategory === 'metal' && boardId === 'slotted_angle') ? 'crca_powder_coated' : boardId, t)}
                       </option>
                     ))}
                   </select>
@@ -3692,12 +3822,34 @@ export default function CustomStorageCalculator() {
                   <span className="font-mono font-medium">Rs {drawerCalcData.totals.materialCost.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-300">
-                  <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-orange-400" /> Backing PLPB Cost:</span>
-                  <span className="font-mono font-medium">Rs {drawerCalcData.totals.backingCost.toFixed(2)}</span>
+                  <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-yellow-400" /> Material Waste (15%):</span>
+                  <span className="font-mono font-medium">Rs {drawerCalcData.totals.wasteCost.toFixed(2)}</span>
                 </div>
+                <div className="pl-6 pb-1 space-y-1">
+                  {drawerCalcData.pieces.filter(p => p.cost > 0).map((p, i) => (
+                    <div key={i} className="flex justify-between text-[11px] text-slate-500 font-mono">
+                      <span>- {p.qty}x {p.label.split(' (')[0]} ({p.w}x{p.l}mm)</span>
+                      <span>Rs {p.cost.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                {drawerCalcData.totals.backingCost > 0 && (
+                  <div className="flex justify-between items-center text-slate-300">
+                    <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-orange-400" /> Backing Cost:</span>
+                    <span className="font-mono font-medium">Rs {drawerCalcData.totals.backingCost.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center text-slate-300">
                   <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Hardware & Channels:</span>
                   <span className="font-mono font-medium">Rs {drawerCalcData.totals.hardwareCost.toFixed(2)}</span>
+                </div>
+                <div className="pl-6 pb-1 space-y-1">
+                  {drawerCalcData.hardware.map((h, i) => (
+                    <div key={i} className="flex justify-between text-[11px] text-slate-500 font-mono">
+                      <span>- {h.qty} {h.unit} {h.label.split(' (')[0]}</span>
+                      <span>Rs {h.cost.toFixed(2)}</span>
+                    </div>
+                  ))}
                 </div>
                 <div className="flex justify-between items-center text-slate-300">
                   <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Assembly Labor:</span>
@@ -4080,7 +4232,7 @@ export default function CustomStorageCalculator() {
                   <div className="pl-6 flex flex-col gap-1">
                     {lockerCalcData.pieces.map((p, i) => (
                        <div key={i} className="flex justify-between items-center text-[11px] text-slate-500 font-mono">
-                         <span>- {p.qty}x {p.label} <span className="opacity-70">({(p.totalSqFt || 0).toFixed(1)} sq.ft)</span></span>
+                         <span>- {p.qty}x {p.label} <span className="opacity-70">({(p.totalSqFt || 0).toFixed(1)} {p.label.toLowerCase().includes('slotted angle') ? 'Rft' : 'sq.ft'})</span></span>
                          <span>Rs {p.cost.toFixed(0)}</span>
                        </div>
                     ))}
@@ -4109,7 +4261,7 @@ export default function CustomStorageCalculator() {
                   </div>
                   <div className="pl-6 flex flex-col gap-1 text-[11px] text-slate-500 font-mono">
                      <div className="flex justify-between items-center">
-                       <span>- Base Fabrication ({lockerCalcData.totals.totalSqFt?.toFixed(1) || '0'} sq.ft)</span>
+                       <span>- Base Fabrication ({lockerCalcData.totals.totalSqFt?.toFixed(1) || '0'} {constructionCategory === 'metal' && boardId === 'slotted_angle' ? 'Rft' : 'sq.ft'})</span>
                        <span>Rs {(lockerCalcData.totals.baseLabor || 0).toFixed(0)}</span>
                      </div>
                      {(lockerCalcData.totals.cncCost || 0) > 0 && (
